@@ -34,6 +34,17 @@
         background:rgba(0,0,0,.25);color:#fff;cursor:pointer}
   #play:hover{background:rgba(0,0,0,.45)}
   #start .mprow{display:flex;gap:8px}
+  #home{display:flex;flex-direction:column;align-items:center;gap:26px}
+  #saves{display:none;flex-direction:column;align-items:center;gap:14px}
+  #savelist{width:min(380px,88vw);max-height:42vh;overflow:auto;display:flex;flex-direction:column;gap:8px}
+  .sv{display:flex;align-items:center;gap:8px;padding:8px 10px;border:2px solid rgba(255,255,255,.75);border-radius:6px;background:rgba(0,0,0,.28)}
+  .sv .nm{flex:1;min-width:0;font:600 16px system-ui,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sv .nm small{display:block;font:500 12px system-ui,sans-serif;opacity:.8}
+  .sv button,#newgame,#savesback{font:600 14px system-ui,sans-serif;padding:7px 14px;border:2px solid #fff;border-radius:6px;background:rgba(0,0,0,.3);color:#fff;cursor:pointer}
+  .sv button:hover,#newgame:hover,#savesback:hover{background:rgba(0,0,0,.5)}
+  .sv button.del{padding:7px 10px;border-color:rgba(255,255,255,.55)}
+  .sv button.del.sure{background:rgba(200,40,40,.75);border-color:#fff}
+  #savelist .none{text-align:center;font:500 14px system-ui,sans-serif;opacity:.85;padding:6px}
   #mpcode{font:500 16px system-ui,sans-serif;width:120px;padding:10px 12px;border:2px solid rgba(255,255,255,.7);
           border-radius:6px;background:rgba(0,0,0,.2);color:#fff;text-align:center}
   #mpcode::placeholder{color:rgba(255,255,255,.7)}
@@ -86,8 +97,10 @@
 <div id="wpn">Fist</div>
 <div id="prompt"><span id="ptxt"></span><div class="pb"><i id="pfill"></i></div></div>
 <div id="dead"><div id="deadmsg"></div><button id="respawn">Respawn</button></div>
-<div id="start"><h1>Untitled Game</h1><button id="play">Play game</button>
-  <div class="mprow"><input id="mpcode" placeholder="username" maxlength="16" autocomplete="off" spellcheck="false"><button id="mp" disabled>Multiplayer…</button></div><div id="mpmsg"></div></div>
+<div id="start"><h1>Untitled Game</h1>
+  <div id="saves"><div id="savelist"></div><div class="mprow"><button id="newgame">+ New game</button><button id="savesback">Back</button></div></div>
+  <div id="home"><button id="play">Play game</button>
+  <div class="mprow"><input id="mpcode" placeholder="username" maxlength="16" autocomplete="off" spellcheck="false"><button id="mp" disabled>Multiplayer…</button></div><div id="mpmsg"></div></div></div>
 <div id="pause"><h2 id="ptitle"></h2>
   <div id="pmain"><button id="pback">Back to game</button><br><br><button id="pbinds">Change keybinds</button><br><br><button id="pmenu">Return to menu</button></div>
   <div id="binds"></div></div>
@@ -329,6 +342,16 @@ const SKYFN = `
 uniform vec3 SUN;                                   // direction towards the sun (moves over time)
 float dayK(){ return smoothstep(-0.12, 0.22, SUN.y); }   // 0 = night, 1 = full day
 vec3 sunColor(){ return mix(vec3(1.0,0.55,0.28), vec3(1.0,0.92,0.78), smoothstep(0.0, 0.4, SUN.y)); }
+uniform vec4 flashF;                                // xyz = where the player looks, w = flashlight on (1) / off (0)
+// flashlight: a wide cone from the eye; p = lit point, n = its surface normal
+vec3 torch(vec3 p, vec3 cam, vec3 n){
+  if(flashF.w < 0.5) return vec3(0.);
+  vec3 v = p - cam; float d = max(length(v), 0.01); vec3 dir = v / d;
+  float cone = smoothstep(0.55, 0.88, dot(dir, flashF.xyz));
+  float atten = (1.0 / (1.0 + d*d*0.006)) * smoothstep(60.0, 18.0, d);
+  float lam = 0.45 + 0.55*max(dot(n, -dir), 0.0);
+  return vec3(1.0, 0.92, 0.74) * (1.6 * cone * atten * lam * mix(1.0, 0.35, dayK()));
+}
 vec3 horizonCol(){
   vec3 c = mix(vec3(0.02,0.03,0.07), vec3(0.72,0.88,0.98), dayK());
   float dusk = 1.0 - smoothstep(0.0, 0.35, abs(SUN.y + 0.02));
@@ -538,6 +561,7 @@ void main(){
       float foam = smoothstep(0.45, 0.0, depth) * (0.5 + 0.5*vnoise(adv*3.0));
       col = mix(body, skyCol(rd), clamp(fres, 0., 1.)) + sunColor()*spec;
       col = mix(col, vec3(0.92,0.96,0.98)*mix(0.25, 1.0, dkw), foam*0.85);
+      col += torch(p, pos, wn) * vec3(0.25, 0.4, 0.45);
     } else {
     float steep = 1.0 - n.y;
     float rk = max(max(smoothstep(0.10, 0.26, steep), smoothstep(45., 85., p.y)), smoothstep(0.03, 0.35, R(p.xz)));
@@ -567,7 +591,7 @@ void main(){
       sunL *= shd;
     }
     vec3 amb = vec3(0.50,0.62,0.85) * (0.30 + 0.25*n.y) * mix(0.16, 1.0, dk);
-    col = alb * (amb + sunColor()*sunL*0.95);
+    col = alb * (amb + sunColor()*sunL*0.95 + torch(p, pos, n));
     }
 
     float fog = 1.0 - exp(-t*0.0014);
@@ -657,7 +681,7 @@ void main(){
   }
   float sunL = (max(dot(nn, SUN), 0.0)*0.7 + 0.25) * dk * shd;
   vec3 amb = vec3(0.50,0.62,0.85) * (0.30 + 0.25*n.y) * (0.35 + 0.65*t) * mix(0.16, 1.0, dk);   // darker at the roots
-  vec3 lit = col * (amb + sunColor() * sunL * (0.4 + 0.6*t) * 0.95);
+  vec3 lit = col * (amb + sunColor() * sunL * (0.4 + 0.6*t) * 0.95 + torch(pos, camPos, vec3(0.,1.,0.)));
   float fog = 1.0 - exp(-dist*0.0014);
   vCol = mix(lit, horizonCol(), clamp(fog, 0., 1.));
 
@@ -699,7 +723,7 @@ if(!gl.getProgramParameter(bprog, gl.LINK_STATUS)) throw gl.getProgramInfoLog(bp
 const BU = n => gl.getUniformLocation(bprog, n);
 const bCam=BU('camPos'), bR=BU('cR'), bU=BU('cU'), bF=BU('cF'),
       bTan=BU('tanH'), bAsp=BU('aspect'), bTime=BU('time');
-const bCr = BU('cracks'), bNC = BU('nCracks'), bSun = BU('SUN');
+const bCr = BU('cracks'), bNC = BU('nCracks'), bSun = BU('SUN'), bFlash = BU('flashF');
 gl.useProgram(bprog); gl.uniform1i(BU('hm'), 0);
 gl.useProgram(prog);
 
@@ -768,6 +792,7 @@ void main(){
                      (FAR+NEAR)/(FAR-NEAR)*zv - 2.*FAR*NEAR/(FAR-NEAR), zv);
   float dk = dayK();
   vec3 c = col * (max(dot(n, SUN), 0.0)*0.8*dk*sunVis + 0.4*mix(0.22, 1.0, dk));
+  c += col * torch(w, camPos, n);
   c = mix(c, col, emis);
   c = mix(c, vec3(1.0,0.1,0.08), tint);
   float fog = 1.0 - exp(-length(rel)*0.0014);
@@ -783,7 +808,7 @@ if(!gl.getProgramParameter(mprog, gl.LINK_STATUS)) throw gl.getProgramInfoLog(mp
 const MU = n => gl.getUniformLocation(mprog, n);
 const mCam=MU('camPos'), mR=MU('cR'), mUp=MU('cU'), mF=MU('cF'), mBase=MU('base'), mOff=MU('boxOff'),
       mSize=MU('boxSize'), mPivot=MU('pivot'), mCol=MU('col'), mTan=MU('tanH'), mAsp=MU('aspect'),
-      mYaw=MU('yaw'), mRx=MU('rx'), mEmis=MU('emis'), mTint=MU('tint'), mSun=MU('SUN'), mVis=MU('sunVis');
+      mYaw=MU('yaw'), mRx=MU('rx'), mEmis=MU('emis'), mTint=MU('tint'), mSun=MU('SUN'), mVis=MU('sunVis'), mFlash=MU('flashF');
 
 const tex = gl.createTexture();
 gl.activeTexture(gl.TEXTURE0);
@@ -803,7 +828,7 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 gl.activeTexture(gl.TEXTURE0);
 
 const U = n => gl.getUniformLocation(prog, n);
-const uCr=U('cracks'), uNC=U('nCracks'), uSun=U('SUN'), uTime=U('time');
+const uFlash=U('flashF'), uCr=U('cracks'), uNC=U('nCracks'), uSun=U('SUN'), uTime=U('time');
 const uPos=U('pos'), uYaw=U('yaw'), uPitch=U('pitch'), uAspect=U('aspect'),
       uTan=U('tanH'), uPix=U('pixAng'), uMax=U('maxH');
 gl.uniform1i(U('hm'), 0);
@@ -829,8 +854,8 @@ const FALL_SAFE = 3.2, FALL_DMG = 7;        // metres you can drop unhurt; damag
 const GRAVITY = 22, JUMP = 8, MAX_SLOPE = 1.3; // 1.3 ≈ 52° — steeper is a cliff
 const player = {x:0, z:0, yaw:0, pitch:0, y:heightAt(0,0), vy:0, grounded:true, airPeak:heightAt(0,0)};
 const keys = {};
-const BIND_DEFAULTS = {forward:'KeyW', back:'KeyS', left:'KeyA', right:'KeyD', jump:'Space', sprint:'ShiftLeft', pickup:'KeyE', chat:'KeyT'};
-const BIND_LABELS = {forward:'Forward', back:'Backward', left:'Left', right:'Right', jump:'Jump', sprint:'Sprint', pickup:'Pick up (hold)', chat:'Chat'};
+const BIND_DEFAULTS = {forward:'KeyW', back:'KeyS', left:'KeyA', right:'KeyD', jump:'Space', sprint:'ShiftLeft', pickup:'KeyE', chat:'KeyT', flash:'KeyF'};
+const BIND_LABELS = {forward:'Forward', back:'Backward', left:'Left', right:'Right', jump:'Jump', sprint:'Sprint', pickup:'Pick up (hold)', chat:'Chat', flash:'Flashlight'};
 const binds = Object.assign({}, BIND_DEFAULTS);
 try { Object.assign(binds, JSON.parse(localStorage.getItem('ug-binds') || '{}')); } catch(e){}
 function down(a){ const c = binds[a]; return !!(keys[c] || (c === 'ShiftLeft' && keys.ShiftRight)); }
@@ -838,6 +863,7 @@ function keyName(c){
   return c.replace(/^Key/, '').replace(/^Digit/, '').replace('Left',' L').replace('Right',' R').replace('Arrow','Arrow ')
           .replace('Space','Space').replace('Control','Ctrl');
 }
+let flashOn = false;
 let paused = false, menuOpen = false, menuOpenedAt = 0;      // paused freezes the game in singleplayer only
 addEventListener('keydown', e => {
   if(e.code === 'Escape'){
@@ -848,6 +874,7 @@ addEventListener('keydown', e => {
   if(chatOpen) return;
   if(dead || !started || menuOpen) return;
   if(e.code === binds.chat){ e.preventDefault(); openChat(); return; }
+  if(e.code === binds.flash){ if(!e.repeat) flashOn = !flashOn; return; }
   if(e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   keys[e.code] = true;
 });
@@ -878,6 +905,7 @@ const BREAK_R = 1.3, BREAK_DEPTH = 1.0, MIN_H = -60, CRACK_LINK = 1.9, MAX_CRACK
 const punch = {t: 1, hit: true};
 const cracks = [];                      // {x, z, seed}
 const crackData = new Float32Array(MAX_CRACKS*3);
+const digLog = [];                      // every crater, so a saved game can rebuild its dug-up terrain
 
 // wind-up, then a hard thrust that lands at t = 0.5, then recover
 function punchE(t){
@@ -891,10 +919,13 @@ function punchE(t){
 const wrapD = (a, b) => (a - b) - PERIOD*Math.round((a - b)/PERIOD);
 
 // second hit: the cracked ground gives way in an irregular crater; rocks shatter
-function breakArea(cx, cz){
-  cx = ((cx % PERIOD) + PERIOD) % PERIOD;
-  cz = ((cz % PERIOD) + PERIOD) % PERIOD;
-  const ph1 = Math.random()*6.28, ph2 = Math.random()*6.28, ph3 = Math.random()*6.28;
+function breakArea(cx, cz, ph, replay){
+  const r3 = v => Math.round(v*1000)/1000;
+  cx = r3(((cx % PERIOD) + PERIOD) % PERIOD);
+  cz = r3(((cz % PERIOD) + PERIOD) % PERIOD);
+  ph = ph || [r3(Math.random()*6.28), r3(Math.random()*6.28), r3(Math.random()*6.28)];
+  if(!replay) digLog.push([cx, cz, ph[0], ph[1], ph[2]]);
+  const ph1 = ph[0], ph2 = ph[1], ph3 = ph[2];
   const reach = BREAK_R*1.45;
   const i0 = Math.floor((cx - reach)/CELL), i1 = Math.ceil((cx + reach)/CELL);
   const j0 = Math.floor((cz - reach)/CELL), j1 = Math.ceil((cz + reach)/CELL);
@@ -911,6 +942,10 @@ function breakArea(cx, cz){
     heights[k+1] = Math.max(0, heights[k+1] - amt*1.5);   // rocks shatter faster than soil
     heights[k]   = Math.max(MIN_H, heights[k] - amt);
   }
+  if(replay) return;                    // a replay uploads the terrain once at the end
+  uploadHeights();
+}
+function uploadHeights(){
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, N, gl.RGBA, gl.FLOAT, heights);
@@ -929,6 +964,12 @@ function doPunch(){
         hitMonster(m); return;
       }
     }
+    for(const r of remote.values()){                                  // other players
+      if(r.dd || !r.id) continue;
+      if(Math.hypot(x - r.x, z - r.z) < 0.85*MSP && y > r.y - 0.1 && y < r.y + 2.6*MSP){
+        hitPlayer(r); return;
+      }
+    }
     if(y < heightAt(x, z)){
       const idx = cracks.findIndex(k => Math.hypot(wrapD(x, k.x), wrapD(z, k.z)) < CRACK_LINK);
       if(idx >= 0){                       // already cracked -> break it open
@@ -943,6 +984,13 @@ function doPunch(){
   }
 }
 
+// ---- player vs player: the attacker works out the hit and tells the victim through presence ----
+const myCid = Math.random().toString(36).slice(2, 10);
+let hitSeq = 0, hitTarget = '', hitDmg = 0;
+function hitPlayer(r){
+  hitSeq++; hitTarget = r.id; hitDmg = weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE;
+  r.hitT = performance.now();
+}
 // ---- health ----
 const hpFill = document.getElementById('hpfill'), hpTxt = document.getElementById('hptxt');
 const flashEl = document.getElementById('flash'), deadEl = document.getElementById('dead');
@@ -1145,17 +1193,92 @@ addEventListener('keydown', e => {                    // capture the next key wh
 }, true);
 document.getElementById('pback').onclick = closeMenu;
 document.getElementById('pbinds').onclick = showBinds;
-document.getElementById('pmenu').onclick = () => location.reload();   // fresh start screen, leaves any multiplayer room
+document.getElementById('pmenu').onclick = () => { saveNow(); location.reload(); };   // fresh start screen, leaves any multiplayer room
 document.addEventListener('pointerlockchange', () => {
   if(document.pointerLockElement !== canvas && started && !dead && !menuOpen && !chatOpen && performance.now() > lockIgnore) openMenu();   // Esc releases the mouse: show the menu
 });
+// ---- saved games (singleplayer): kept in this browser's localStorage ----
+const SAVE_KEY = 'ug-saves';
+let curSave = null;
+function loadSaves(){ try { const a = JSON.parse(localStorage.getItem(SAVE_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
+function storeSaves(a){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(a)); return true; } catch(e){ return false; } }
+function snapshot(){
+  const r = (v, k = 100) => Math.round(v*k)/k;
+  return {
+    x: r(player.x), y: r(player.y), z: r(player.z), yaw: r(player.yaw, 1000), pitch: r(player.pitch, 1000),
+    hp: Math.round(hp.v), weapon: weapon || '', gameT: r(gameT, 10),
+    digs: digLog, cracks: cracks.map(k => [r(k.x), r(k.z), r(k.seed)]),
+    swords: worldSwords.map(w => [r(w.x), r(w.z), w.type, r(w.yaw), r(w.lean)]),
+  };
+}
+function saveNow(){
+  if(!curSave || mpRoom || !started) return;
+  if(!dead) curSave.state = snapshot();                         // while dead, keep the last living state
+  curSave.played = Date.now();
+  const all = loadSaves(), i = all.findIndex(g => g.id === curSave.id);
+  if(i >= 0) all[i] = curSave; else all.push(curSave);
+  storeSaves(all);
+}
+function applySave(st){
+  for(const d of st.digs || []){ digLog.push(d); breakArea(d[0], d[1], [d[2], d[3], d[4]], true); }
+  if((st.digs || []).length) uploadHeights();
+  cracks.length = 0; for(const k of st.cracks || []) cracks.push({x: k[0], z: k[1], seed: k[2]});
+  if(Array.isArray(st.swords)){
+    worldSwords.length = 0;
+    for(const w of st.swords) if(SWORD_TYPES[w[2]]) worldSwords.push({x: w[0], z: w[1], type: w[2], yaw: w[3], lean: w[4]});
+  }
+  weapon = SWORD_TYPES[st.weapon] ? st.weapon : null;
+  if(weapon) wpnEl.textContent = SWORD_TYPES[weapon].name + ' (' + SWORD_TYPES[weapon].dmg + ' dmg)';
+  hp.v = Math.max(1, Math.min(MAX_HP, st.hp || MAX_HP)); hp.last = -1e9;
+  gameT = st.gameT || 0;
+  if(typeof st.x === 'number'){
+    player.x = st.x; player.z = st.z; player.yaw = st.yaw || 0; player.pitch = st.pitch || 0;
+    player.y = Math.max(st.y || 0, groundAt(player.x, player.z)); player.vy = 0; player.grounded = true; player.airPeak = player.y;
+  }
+}
+function ago(t){
+  const m = Math.floor((Date.now() - t)/60000);
+  if(m < 1) return 'just now'; if(m < 60) return m + ' min ago';
+  const h = Math.floor(m/60); if(h < 24) return h + ' h ago';
+  const d = Math.floor(h/24); return d + ' day' + (d > 1 ? 's' : '') + ' ago';
+}
+const savesEl = document.getElementById('saves'), homeEl = document.getElementById('home'), listEl = document.getElementById('savelist');
+function showSaves(){
+  homeEl.style.display = 'none'; savesEl.style.display = 'flex'; listEl.innerHTML = '';
+  const all = loadSaves().sort((a, b) => b.played - a.played);
+  if(!all.length){ const n = document.createElement('div'); n.className = 'none'; n.textContent = 'No games yet - make a new one.'; listEl.appendChild(n); }
+  for(const g of all){
+    const row = document.createElement('div'); row.className = 'sv';
+    const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = g.name;
+    const sm = document.createElement('small'); sm.textContent = 'Played ' + ago(g.played); nm.appendChild(sm);
+    const play = document.createElement('button'); play.textContent = 'Play'; play.onclick = () => { curSave = g; applySave(g.state || {}); startGame(); };
+    const del = document.createElement('button'); del.className = 'del'; del.textContent = '✕'; del.title = 'Delete';
+    del.onclick = () => {
+      if(!del.classList.contains('sure')){ del.classList.add('sure'); del.textContent = 'Sure?'; setTimeout(() => { del.classList.remove('sure'); del.textContent = '✕'; }, 2500); return; }
+      storeSaves(loadSaves().filter(x => x.id !== g.id)); showSaves();
+    };
+    row.append(nm, play, del); listEl.appendChild(row);
+  }
+}
+document.getElementById('newgame').onclick = () => {
+  const all = loadSaves();
+  let n = 1; while(all.some(g => g.name === 'Game ' + n)) n++;
+  curSave = {id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: 'Game ' + n, created: Date.now(), played: Date.now(), state: null};
+  startGame();
+  saveNow();                                                     // appears in the list straight away
+};
+document.getElementById('savesback').onclick = () => { savesEl.style.display = 'none'; homeEl.style.display = 'flex'; };
+setInterval(() => { if(started && !paused && !dead) saveNow(); }, 8000);      // autosave
+addEventListener('pagehide', saveNow);
+document.addEventListener('visibilitychange', () => { if(document.hidden) saveNow(); });
+
 function startGame(){
   applyName();
   started = true;
   document.getElementById('start').style.display = 'none';
   canvas.requestPointerLock();
 }
-document.getElementById('play').addEventListener('click', startGame);
+document.getElementById('play').addEventListener('click', showSaves);
 
 function updateMonsters(dt){
   gameT += dt;
@@ -1521,7 +1644,7 @@ function updateMP(){
     lastSend = nowMs;
     const r2 = v => Math.round(v*100)/100;
     mpRoom.presence({x: r2(player.x), y: r2(player.y), z: r2(player.z), yaw: r2(player.yaw),
-                     pt: punch.t >= 1 ? 1 : r2(punch.t), w: weapon || '', n: myName, dd: dead ? 1 : 0, c: chatCur, ci: chatId}).catch(() => {});
+                     pt: punch.t >= 1 ? 1 : r2(punch.t), w: weapon || '', n: myName, dd: dead ? 1 : 0, c: chatCur, ci: chatId, id: myCid, h: hitTarget, hi: hitSeq, hd: hitDmg}).catch(() => {});
   }
   const seen = new Set(), f = 1 - Math.exp(-rdt*12);
   for(const p of mpRoom.peers()){
@@ -1530,7 +1653,7 @@ function updateMP(){
     if(!s || typeof s.x !== 'number' || typeof s.z !== 'number') continue;
     seen.add(p.peer);
     let r = remote.get(p.peer);
-    if(!r){ r = {x: s.x, y: s.y, z: s.z, yaw: s.yaw || 0, phase: 0, moving: false, col: hueRGB(p.peer), tag: null, ci: s.ci, announced: false}; remote.set(p.peer, r); }
+    if(!r){ r = {x: s.x, y: s.y, z: s.z, yaw: s.yaw || 0, phase: 0, moving: false, col: hueRGB(p.peer), tag: null, ci: s.ci, announced: false, hi: s.hi, id: '', hitT: -1e9}; remote.set(p.peer, r); }
     const dx = s.x - r.x, dz = s.z - r.z;
     r.moving = Math.hypot(dx, dz) > 0.04;
     if(r.moving) r.phase += rdt*9;
@@ -1541,6 +1664,15 @@ function updateMP(){
     r.w = typeof s.w === 'string' ? s.w : '';
     r.n = typeof s.n === 'string' ? s.n.slice(0, 20) : 'Player';
     r.dd = !!s.dd;
+    r.id = typeof s.id === 'string' ? s.id : '';
+    if(s.hi !== r.hi){                                           // they landed a hit on someone
+      r.hi = s.hi;
+      if(s.h === myCid && typeof s.hd === 'number' && !dead && started){
+        hurt(Math.max(0, Math.min(60, Math.round(s.hd))));
+        const kx = player.x - r.x, kz = player.z - r.z, kd = Math.hypot(kx, kz) || 1;   // small shove away from them
+        if(canMove(player.x + kx/kd*0.6, player.z + kz/kd*0.6)){ player.x += kx/kd*0.6; player.z += kz/kd*0.6; }
+      }
+    }
     if(!r.announced){ r.announced = true; if(nowMs - mpStart > 4000) addChat('', r.n + ' joined the game', true); }   // not for players already there when we arrive
     if(s.ci !== r.ci){ r.ci = s.ci; if(typeof s.c === 'string' && s.c) addChat(r.n, s.c.slice(0, 120)); }
   }
@@ -1555,6 +1687,7 @@ function drawPlayers(sunNow){
     if(r.dd) continue;
     gl.uniform3f(mBase, r.x, r.y, r.z);
     gl.uniform1f(mYaw, Math.PI - r.yaw);
+    gl.uniform1f(mTint, Math.max(0, 1 - (performance.now() - r.hitT)/300) * 0.85);     // flashes red when you hit them
     gl.uniform1f(mVis, shadowAt(r.x, r.z, sunNow));
     const sw = r.moving ? Math.sin(r.phase)*0.7 : 0;
     const armed = r.w && SWORD_TYPES[r.w];
@@ -1685,6 +1818,8 @@ function frame(now){
   if(!paused) animT += (now - (frame.prev || now))/1000;
   frame.prev = now;
   gl.uniform1f(uTime, animT);
+  const fwdX = sy*cp, fwdY = sp, fwdZ = -cyw*cp, fOn = flashOn ? 1 : 0;
+  gl.uniform4f(uFlash, fwdX, fwdY, fwdZ, fOn);
   gl.uniform3f(uPos, cx, cy, cz);
   gl.uniform1f(uYaw, player.yaw);
   gl.uniform1f(uPitch, player.pitch);
@@ -1707,6 +1842,7 @@ function frame(now){
   gl.uniform1f(bTan, TANH);
   gl.uniform1f(bAsp, aspect);
   gl.uniform1f(bTime, animT);
+  gl.uniform4f(bFlash, fwdX, fwdY, fwdZ, fOn);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 7, BLADE_G*BLADE_G);
 
   // pass 2b: monsters
@@ -1714,6 +1850,7 @@ function frame(now){
     gl.useProgram(mprog);
     gl.bindVertexArray(fistVAO);
     gl.uniform3f(mSun, sun[0], sun[1], sun[2]);
+    gl.uniform4f(mFlash, fwdX, fwdY, fwdZ, fOn);
     gl.uniform3f(mCam, cx, cy, cz);
     gl.uniform3f(mR, cyw, 0, sy);
     gl.uniform3f(mUp, -sy*sp, cp, cyw*sp);
