@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Untitled Game</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#87ceeb}
+  canvas{display:block;width:100%;height:100%}
+  #hp{position:fixed;left:12px;top:12px;width:170px;height:14px;background:rgba(0,0,0,.45);
+      border-radius:3px;overflow:hidden;font:600 10px/14px system-ui,sans-serif;color:#fff;
+      text-shadow:0 1px 2px rgba(0,0,0,.7);pointer-events:none}
+  #hpfill{position:absolute;inset:0 auto 0 0;width:100%;background:#4caf50}
+  #hptxt{position:relative;padding-left:6px}
+  #flash{position:fixed;inset:0;background:#c00;opacity:0;pointer-events:none}
+  #dead{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
+        gap:22px;background:rgba(150,10,10,.8);color:#fff;font:600 32px system-ui,sans-serif;
+        text-shadow:0 2px 6px rgba(0,0,0,.6)}
+  #dead.show{display:flex}
+  #respawn{font:600 16px system-ui,sans-serif;padding:10px 28px;border:2px solid #fff;border-radius:4px;
+           background:rgba(0,0,0,.35);color:#fff;cursor:pointer}
+  #respawn:hover{background:rgba(0,0,0,.6)}
+  #wpn{position:fixed;left:12px;top:32px;font:600 11px system-ui,sans-serif;color:#fff;
+       text-shadow:0 1px 2px rgba(0,0,0,.8);pointer-events:none}
+  #prompt{position:fixed;left:0;right:0;bottom:22%;display:none;text-align:center;pointer-events:none;
+          font:600 14px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  #prompt .pb{width:140px;height:5px;margin:6px auto 0;background:rgba(0,0,0,.5);border-radius:2px;overflow:hidden}
+  #prompt .pb i{display:block;height:100%;width:0;background:#fff}
+  #start{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;
+         justify-content:center;gap:26px;background:linear-gradient(#2f6fbf,#8fc8ee 70%,#bfe3c0);
+         font-family:system-ui,sans-serif;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.35)}
+  #start h1{margin:0;font-size:44px;font-weight:700;letter-spacing:.02em}
+  #play{font:600 20px system-ui,sans-serif;padding:14px 46px;border:2px solid #fff;border-radius:6px;
+        background:rgba(0,0,0,.25);color:#fff;cursor:pointer}
+  #play:hover{background:rgba(0,0,0,.45)}
+  #start .mprow{display:flex;gap:8px}
+  #mpcode{font:500 16px system-ui,sans-serif;width:120px;padding:10px 12px;border:2px solid rgba(255,255,255,.7);
+          border-radius:6px;background:rgba(0,0,0,.2);color:#fff;text-align:center}
+  #mpcode::placeholder{color:rgba(255,255,255,.7)}
+  #mp{font:600 16px system-ui,sans-serif;padding:10px 24px;border:2px solid #fff;border-radius:6px;
+      background:rgba(0,0,0,.25);color:#fff;cursor:pointer}
+  #mp:hover:not(:disabled){background:rgba(0,0,0,.45)}
+  #mp:disabled{opacity:.55;cursor:default}
+  #mpmsg{font:500 13px system-ui,sans-serif;min-height:16px;max-width:360px;text-align:center}
+  #mpinfo{position:fixed;left:12px;top:48px;font:600 11px system-ui,sans-serif;color:#fff;
+          text-shadow:0 1px 2px rgba(0,0,0,.8);pointer-events:none;display:none}
+  .ptag{position:fixed;transform:translate(-50%,-100%);font:600 11px system-ui,sans-serif;color:#fff;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);pointer-events:none;display:none;white-space:nowrap}
+  .mbar{position:fixed;width:56px;height:6px;margin:-3px 0 0 -28px;background:rgba(0,0,0,.55);
+        border-radius:2px;overflow:hidden;pointer-events:none;display:none}
+  .mbar i{display:block;height:100%;width:100%;background:#d33}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="flash"></div>
+<div id="hp"><div id="hpfill"></div><span id="hptxt">100</span></div>
+<div id="wpn">Fist</div>
+<div id="prompt"><span id="ptxt"></span><div class="pb"><i id="pfill"></i></div></div>
+<div id="dead"><div>You were killed by Monster</div><button id="respawn">Respawn</button></div>
+<div id="start"><h1>Untitled Game</h1><button id="play">Play game</button>
+  <div class="mprow"><input id="mpcode" placeholder="room code" maxlength="24" value="main" autocomplete="off"><button id="mp" disabled>Multiplayer…</button></div><div id="mpmsg"></div></div>
+<div id="mpinfo"></div>
+<script>
+// ============================================================================
+// MULTIPLAYER SETTINGS - fill these in to connect players directly (WebRTC)
+// using Firebase for signalling and your STUN/TURN servers for the connection.
+// Leave them as they are to use the built-in room instead (signed-in users only).
+// ============================================================================
+const FIREBASE_CONFIG = {
+  apiKey:      "AIzaSyAehbXPvnnEEINIoTtnz7roQ7slAtaFv7Y",
+  authDomain:  "game-multiplayer-t.firebaseapp.com",
+  databaseURL: "https://game-multiplayer-t-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:   "game-multiplayer-t",
+  appId:       "1:894585457467:web:e329d7cde50093df86451e",
+};
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },                      // free public STUN
+  { urls: ["turn:free.expressturn.com:3478?transport=udp",
+           "turn:free.expressturn.com:3478?transport=tcp"],
+    username: "000000002110273354", credential: "f4I2AmopTjaQh3ZmPlw0tW8JyIc=" },
+];
+const FORCE_TURN_RELAY = false;   // true = send everything through TURN (handy for testing it works)
+// ---------------------------------------------------------------------------
+// Terrain: a tiling heightmap generated here in JS. The same data is uploaded
+// to the GPU for drawing and read by the physics, so what you see is what you
+// stand on. The world repeats every PERIOD metres, so it never ends.
+// ---------------------------------------------------------------------------
+const PERIOD = 1536, N = 1024, CELL = PERIOD / N;
+
+function hash2(ix, iz){
+  let n = (Math.imul(ix, 374761393) + Math.imul(iz, 668265263)) | 0;
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  n ^= n >>> 16;
+  return (n >>> 0) / 4294967296;
+}
+function pnoise(x, z, cells, seed){
+  const u = x / PERIOD * cells, v = z / PERIOD * cells;
+  const iu = Math.floor(u), iv = Math.floor(v);
+  let fu = u - iu, fv = v - iv;
+  fu = fu*fu*(3 - 2*fu); fv = fv*fv*(3 - 2*fv);
+  const a = ((iu % cells) + cells) % cells, b = (a + 1) % cells;
+  const c = ((iv % cells) + cells) % cells, d = (c + 1) % cells;
+  const s = seed * 7919;
+  const n00 = hash2(a+s, c), n10 = hash2(b+s, c), n01 = hash2(a+s, d), n11 = hash2(b+s, d);
+  const x0 = n00 + (n10 - n00)*fu, x1 = n01 + (n11 - n01)*fu;
+  return x0 + (x1 - x0)*fv;
+}
+function fbm(x, z, cells, oct, seed){
+  let sum = 0, amp = 0.5, norm = 0;
+  for(let i = 0; i < oct; i++){
+    sum += pnoise(x, z, cells << i, seed + i) * amp; norm += amp; amp *= 0.5;
+  }
+  return sum / norm;
+}
+function ridged(x, z, cells, oct, seed){
+  let sum = 0, amp = 0.5, norm = 0;
+  for(let i = 0; i < oct; i++){
+    const q = 2*pnoise(x, z, cells << i, seed + i) - 1;
+    const r = 1 - Math.sqrt(q*q + 0.03);   // soft crest instead of a razor crease
+    sum += r*amp; norm += amp; amp *= 0.5;
+  }
+  return sum / norm;
+}
+const sstep = (a, b, x) => { const t = Math.min(Math.max((x - a)/(b - a), 0), 1); return t*t*(3 - 2*t); };
+
+let lastRock = 0;   // height contributed by rock outcrops at the last sample
+
+// scattered boulders / outcrops jutting from the ground (one candidate per 24 m cell)
+function rocks(x, z){
+  const RC = 64, cs = PERIOD / RC;
+  const cx = Math.floor(x/cs), cz = Math.floor(z/cs);
+  let best = 0;
+  for(let i = -1; i <= 1; i++) for(let j = -1; j <= 1; j++){
+    const ix = cx + i, iz = cz + j;
+    const wi = ((ix % RC) + RC) % RC, wj = ((iz % RC) + RC) % RC;
+    if(hash2(wi + 500, wj) < 0.5) continue;
+    const px = (ix + 0.15 + 0.7*hash2(wi + 600, wj)) * cs;
+    const pz = (iz + 0.15 + 0.7*hash2(wi + 700, wj)) * cs;
+    const q  = hash2(wi + 800, wj);
+    const rad = 1.8 + 4.2*q*q;
+    const dx = x - px, dz = z - pz;
+    const d2 = (dx*dx + dz*dz) / (rad*rad);
+    if(d2 >= 1) continue;
+    const hgt = (0.8 + 3.2*q) * Math.pow(1 - d2, 0.55) * (0.6 + 0.8*pnoise(x, z, 512, 9));
+    if(hgt > best) best = hgt;
+  }
+  return best;
+}
+
+function terrainH(x, z){
+  const dx = x - PERIOD*Math.round(x/PERIOD), dz = z - PERIOD*Math.round(z/PERIOD);
+  const r = Math.hypot(dx, dz);
+
+  // broad swells, mid-size lumps and small bumps
+  let h = (fbm(x, z, 8, 3, 1) - 0.5)*22 + (fbm(x, z, 24, 2, 2) - 0.5)*7 + (fbm(x, z, 96, 2, 6) - 0.5)*1.6;
+
+  // hollows: round indents with sloping sides
+  h -= 4.5 * sstep(0.60, 0.78, pnoise(x, z, 20, 7)) * (0.6 + 0.4*pnoise(x, z, 64, 8));
+
+  // terraced ground: flat shelves joined by slanted risers, in some regions
+  const tmask = sstep(0.42, 0.62, fbm(x, z, 3, 2, 10));
+  const s = (fbm(x, z, 14, 2, 11) - 0.5) * 20;
+  const fl = Math.floor(s);
+  h += tmask * 1.3 * (fl + sstep(0.30, 0.70, s - fl));
+
+  // mountains rise in a broken ring around the start; the start itself is meadow
+  const ring  = sstep(80, 230, r);
+  const clump = sstep(0.30, 0.50, fbm(x, z, 3, 2, 3));
+  const mask  = ring * (0.3 + 0.7*clump);
+  const shape = sstep(0.64, 0.88, ridged(x, z, 6, 3, 4));
+  const foot  = ring * (fbm(x, z, 5, 3, 5) - 0.2) * 28;
+  // valleys: winding channels with a flat floor and sloping walls; they also cut passes through the mountains
+  const vd = Math.abs(fbm(x, z, 4, 3, 20) - 0.5);
+  const vwarp = (pnoise(x, z, 24, 21) - 0.5) * 0.012;          // wobble the walls so they aren't uniform
+  const valley = 1 - sstep(0.012, 0.075, vd + vwarp);
+  h = h - valley*11 + (mask*shape*120 + foot) * (1 - 0.9*valley);
+
+  // rock outcrops (kept off the spawn point)
+  lastRock = rocks(x, z) * sstep(8, 18, r);
+  return h + lastRock;
+}
+
+const heights = new Float32Array(N*N*2);   // [height, rock] per texel
+let maxH = 0;
+for(let j = 0; j < N; j++){
+  for(let i = 0; i < N; i++){
+    const h = terrainH(i*CELL, j*CELL);
+    heights[(j*N + i)*2] = h;
+    heights[(j*N + i)*2 + 1] = lastRock;
+    if(h > maxH) maxH = h;
+  }
+}
+
+function heightAt(x, z){
+  const fx = x / CELL, fz = z / CELL;
+  const ix = Math.floor(fx), iz = Math.floor(fz);
+  const ax = fx - ix, az = fz - iz;
+  const i0 = ix & (N-1), i1 = (ix + 1) & (N-1);
+  const j0 = iz & (N-1), j1 = (iz + 1) & (N-1);
+  const a = heights[(j0*N + i0)*2], b = heights[(j0*N + i1)*2];
+  const c = heights[(j1*N + i0)*2], d = heights[(j1*N + i1)*2];
+  const t0 = a + (b - a)*ax, t1 = c + (d - c)*ax;
+  return t0 + (t1 - t0)*az;
+}
+
+// ---- swords stabbed into the highest peaks ----
+const SWORD_TYPES = {
+  steel: {name: 'Steel Sword',       dmg: 42, blade: [0.80,0.84,0.90], guard: [0.55,0.58,0.64]},
+  iron:  {name: 'Iron Sword',        dmg: 34, blade: [0.42,0.44,0.48], guard: [0.30,0.31,0.34]},
+  stone: {name: 'Stone Sword',       dmg: 26, blade: [0.52,0.50,0.46], guard: [0.40,0.38,0.35]},
+  wood:  {name: 'Wooden Sword',      dmg: 22, blade: [0.58,0.40,0.22], guard: [0.42,0.28,0.15]},
+  rust:  {name: 'Rusted Iron Sword', dmg: 28, blade: [0.52,0.29,0.16], guard: [0.38,0.22,0.13]},
+};
+const SWORD_KEYS = Object.keys(SWORD_TYPES);
+const worldSwords = [];
+(function placeSwords(){
+  const W = 10, MINH = 45, cand = [];
+  for(let j = 0; j < N; j++) for(let i = 0; i < N; i++){
+    const h = heights[(j*N + i)*2];
+    if(h < MINH) continue;
+    let top = true;
+    for(let dj = -W; dj <= W && top; dj++) for(let di = -W; di <= W; di++){
+      if(heights[((((j+dj) & (N-1))*N) + ((i+di) & (N-1)))*2] > h){ top = false; break; }
+    }
+    if(top) cand.push({x: i*CELL, z: j*CELL, h});
+  }
+  cand.sort((a, b) => b.h - a.h);
+  const wrap = d => d - PERIOD*Math.round(d/PERIOD);
+  for(const c of cand){
+    if(worldSwords.length >= 16) break;
+    if(worldSwords.some(w => Math.hypot(wrap(w.x - c.x), wrap(w.z - c.z)) < 100)) continue;
+    const ci = Math.round(c.x/CELL), cj = Math.round(c.z/CELL);   // hash-seeded so every player sees the same swords
+    worldSwords.push({x: c.x, z: c.z, type: SWORD_KEYS[Math.floor(hash2(ci, cj + 31)*SWORD_KEYS.length)],
+                      yaw: hash2(ci + 7, cj)*6.28, lean: (hash2(ci, cj + 13) - 0.5)*0.35});
+  }
+})();
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2');
+
+const vs = `#version 300 es
+in vec2 p; out vec2 uv;
+void main(){ uv = p; gl_Position = vec4(p,0.,1.); }`;
+
+const SKYFN = `
+uniform vec3 SUN;                                   // direction towards the sun (moves over time)
+float dayK(){ return smoothstep(-0.12, 0.22, SUN.y); }   // 0 = night, 1 = full day
+vec3 sunColor(){ return mix(vec3(1.0,0.55,0.28), vec3(1.0,0.92,0.78), smoothstep(0.0, 0.4, SUN.y)); }
+vec3 horizonCol(){
+  vec3 c = mix(vec3(0.02,0.03,0.07), vec3(0.72,0.88,0.98), dayK());
+  float dusk = 1.0 - smoothstep(0.0, 0.35, abs(SUN.y + 0.02));
+  return mix(c, vec3(0.95,0.52,0.30), dusk*0.55);
+}
+`;
+
+const COMMON = `
+uniform sampler2D hm;
+const float PERIOD = ${PERIOD.toFixed(1)};
+const int NN = ${N};
+const float CELL = ${CELL.toFixed(4)};
+const float NEAR = 0.1, FAR = 4000.0;
+uniform vec3 cracks[8];      // xz position + random seed of each cracked spot
+uniform int nCracks;
+vec2 wrapD(vec2 q){ return q - PERIOD*floor(q/PERIOD + 0.5); }
+${SKYFN}
+
+float H(vec2 p){
+  vec2 f = p * (float(NN) / PERIOD);
+  vec2 fl = floor(f), fr = f - fl;
+  ivec2 i = ivec2(fl) & ivec2(NN-1);
+  float a = texelFetch(hm, i, 0).r;
+  float b = texelFetch(hm, (i + ivec2(1,0)) & ivec2(NN-1), 0).r;
+  float c = texelFetch(hm, (i + ivec2(0,1)) & ivec2(NN-1), 0).r;
+  float d = texelFetch(hm, (i + ivec2(1,1)) & ivec2(NN-1), 0).r;
+  return mix(mix(a,b,fr.x), mix(c,d,fr.x), fr.y);
+}
+// height of rock outcrop at this spot (0 = bare ground)
+float R(vec2 p){
+  vec2 f = p * (float(NN) / PERIOD);
+  vec2 fl = floor(f), fr = f - fl;
+  ivec2 i = ivec2(fl) & ivec2(NN-1);
+  float a = texelFetch(hm, i, 0).g;
+  float b = texelFetch(hm, (i + ivec2(1,0)) & ivec2(NN-1), 0).g;
+  float c = texelFetch(hm, (i + ivec2(0,1)) & ivec2(NN-1), 0).g;
+  float d = texelFetch(hm, (i + ivec2(1,1)) & ivec2(NN-1), 0).g;
+  return mix(mix(a,b,fr.x), mix(c,d,fr.x), fr.y);
+}
+`;
+
+const fs = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+in vec2 uv; out vec4 o;
+
+${COMMON}
+uniform vec3 pos;
+uniform float yaw, pitch, aspect, tanH, pixAng, maxH;
+
+float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y);
+}
+
+vec3 skyCol(vec3 d){
+  float k = dayK();
+  vec3 zenith = mix(vec3(0.01,0.015,0.05), vec3(0.16,0.45,0.85), k);
+  vec3 sky = mix(horizonCol(), zenith, pow(clamp(d.y,0.,1.), 0.5));
+  // stars at night
+  vec2 sp = vec2(atan(d.x, d.z), asin(clamp(d.y,-1.,1.)));
+  float star = step(0.9972, hash(floor(sp*vec2(260.,170.)))) * (1.0 - k) * smoothstep(0.02, 0.15, d.y);
+  sky += vec3(star);
+  float sd = max(dot(d, SUN), 0.);
+  sky += sunColor() * (pow(sd,6.)*0.12 + pow(sd,48.)*0.35 + pow(sd,400.)*0.6);
+  sky = mix(sky, mix(vec3(1.0,0.75,0.5), vec3(1.0,0.98,0.9), smoothstep(0.0,0.4,SUN.y)),
+            smoothstep(0.99955, 0.99975, sd));
+  return sky;
+}
+
+// Voronoi cell borders = fracture lines, fading out towards the edge of the cracked patch
+float crackAt(vec2 q, float seed, float w, float r){
+  float extent = 1.9*(0.7 + 0.3*vnoise(q*2.5 + seed));
+  float mask = 1.0 - smoothstep(extent*0.5, extent, r);
+  if(mask <= 0.) return 0.;
+  vec2 g = q*1.6 + vec2(seed*3.1, seed*1.7);
+  vec2 ip = floor(g), fp = fract(g);
+  float d1 = 9., d2 = 9.;
+  for(int j = -1; j <= 1; j++) for(int i = -1; i <= 1; i++){
+    vec2 b = vec2(float(i), float(j));
+    vec2 o = vec2(hash(ip + b + 11.1), hash(ip + b + 57.7));
+    float dd = length(b + o - fp);
+    if(dd < d1){ d2 = d1; d1 = dd; } else if(dd < d2){ d2 = dd; }
+  }
+  float wd = (0.06 + w*1.5) * 1.6;
+  return (1.0 - smoothstep(wd*0.4, wd, d2 - d1)) * mask;
+}
+
+vec3 grass(vec2 g, float w){
+  float pat = vnoise(g*0.08)*0.5 + vnoise(g*0.4)*0.3 + vnoise(g*1.7)*0.2;
+  float f1 = vnoise(g*vec2(60.,14.))*0.5 + vnoise(vec2(g.x*14., g.y*60.))*0.5;
+  float f2 = vnoise(g*vec2(180.,40.))*0.5 + vnoise(vec2(g.x*40., g.y*180.))*0.5;
+  float f3 = hash(floor(g*220.));
+  float d1 = 1.0 - smoothstep(0.02, 0.12, w);
+  float d2 = 1.0 - smoothstep(0.005, 0.04, w);
+  float tone = pat*0.75 + (f1-0.5)*0.7*d1 + (f2-0.5)*0.5*d2 + (f3-0.5)*0.35*d2;
+  vec3 dark  = vec3(0.10,0.28,0.07);
+  vec3 mid   = vec3(0.24,0.50,0.13);
+  vec3 light = vec3(0.50,0.72,0.22);
+  vec3 c = mix(dark, mid, smoothstep(0.1,0.5,tone));
+  c = mix(c, light, smoothstep(0.5,0.95,tone));
+  c = mix(c, vec3(0.55,0.55,0.22), smoothstep(0.62,0.9,vnoise(g*0.25))*0.25);
+  return c;
+}
+
+vec3 rock(vec3 p, float w){
+  float fine = 1.0 - smoothstep(0.02, 0.2, w);
+  float st = vnoise(vec2((p.x+p.z)*0.22, p.y*1.5))*0.5
+           + vnoise(vec2(p.x*0.7 + p.y*0.5, p.z*0.7 - p.y*0.5))*0.3
+           + (vnoise(vec2(p.x*3.1 + p.y*2.3, p.z*3.1 - p.y*1.9)) - 0.5)*0.4*fine
+           + (hash(floor(vec2(p.x+p.z, p.y)*14.)) - 0.5)*0.25*fine
+           + 0.1;
+  vec3 darkRock  = vec3(0.20,0.18,0.17);
+  vec3 lightRock = vec3(0.60,0.54,0.47);
+  return mix(darkRock, lightRock, clamp(st,0.,1.));
+}
+
+void main(){
+  vec3 up = vec3(0.,1.,0.);
+  vec3 f = vec3(sin(yaw),0.,-cos(yaw));
+  vec3 r = vec3(cos(yaw),0.,sin(yaw));
+  vec3 F = f*cos(pitch) + up*sin(pitch);
+  vec3 U = -f*sin(pitch) + up*cos(pitch);
+  vec3 d = normalize(F + r*uv.x*tanH*aspect + U*uv.y*tanH);
+
+  vec3 ro = pos;
+  float t = 0.3, tp = 0.3;
+  bool hit = false;
+  for(int i = 0; i < 280; i++){
+    vec3 p = ro + d*t;
+    float hh = p.y - H(p.xz);
+    if(hh < 0.0){ hit = true; break; }
+    if(d.y > 0.0 && p.y > maxH) break;
+    tp = t;
+    t += max(hh*0.45, 0.035*t + 0.1);
+    if(t > 2600.0) break;
+  }
+
+  vec3 col;
+  if(!hit){
+    col = skyCol(d);
+    gl_FragDepth = 1.0;
+  } else {
+    float lo = tp, hi = t;
+    for(int i = 0; i < 7; i++){
+      float mid = 0.5*(lo+hi);
+      vec3 q = ro + d*mid;
+      if(q.y - H(q.xz) < 0.0) hi = mid; else lo = mid;
+    }
+    t = hi;
+    vec3 p = ro + d*t;
+    float e = CELL;
+    vec3 n = normalize(vec3(H(p.xz - vec2(e,0.)) - H(p.xz + vec2(e,0.)), 2.*e,
+                            H(p.xz - vec2(0.,e)) - H(p.xz + vec2(0.,e))));
+    float w = t*pixAng / max(abs(dot(n,d)), 0.04);
+
+    float zv = dot(p - ro, F);
+    gl_FragDepth = ((FAR+NEAR)/(FAR-NEAR) - 2.*FAR*NEAR/((FAR-NEAR)*zv))*0.5 + 0.5;
+
+    float steep = 1.0 - n.y;
+    float rk = max(max(smoothstep(0.10, 0.26, steep), smoothstep(45., 85., p.y)), smoothstep(0.03, 0.35, R(p.xz)));
+    vec3 alb = mix(grass(p.xz, w), rock(p, w), rk);
+    float crk = 0.0;
+    for(int i = 0; i < 8; i++){
+      if(i >= nCracks) break;
+      vec2 q = wrapD(p.xz - cracks[i].xy);
+      float rr = length(q);
+      if(rr < 2.2) crk = max(crk, crackAt(q, cracks[i].z, w, rr));
+    }
+    alb *= 1.0 - 0.93*crk;
+
+    float dk = dayK();
+    float sunL = max(dot(n, SUN), 0.) * dk;
+    if(sunL > 0.001){                       // terrain shadows: hills, valley walls and crater rims block the sun
+      float shd = 1.0, st = 0.8;
+      vec3 q0 = p + n*0.3;
+      for(int i = 0; i < 40; i++){
+        vec3 q = q0 + SUN*st;
+        float hh = q.y - H(q.xz);
+        shd = min(shd, clamp(6.0*hh/st, 0., 1.));
+        if(shd < 0.01 || q.y > maxH) break;
+        st += max(hh*0.5, 0.4 + 0.05*st);
+        if(st > 220.) break;
+      }
+      sunL *= shd;
+    }
+    vec3 amb = vec3(0.50,0.62,0.85) * (0.30 + 0.25*n.y) * mix(0.16, 1.0, dk);
+    col = alb * (amb + sunColor()*sunL*0.95);
+
+    float fog = 1.0 - exp(-t*0.0014);
+    vec3 haze = horizonCol() + sunColor()*pow(max(dot(d,SUN),0.),8.)*0.15*dayK();
+    col = mix(col, haze, clamp(fog,0.,1.));
+  }
+  o = vec4(col,1.);
+}`;
+
+
+// ---- 3D grass blades: instanced, placed on a world-fixed grid around the player ----
+const BLADE_CELL = 0.2, BLADE_G = 260;
+const bvs = `#version 300 es
+precision highp float; precision highp int; precision highp sampler2D;
+${COMMON}
+uniform vec3 camPos, cR, cU, cF;
+uniform float tanH, aspect, time;
+out vec3 vCol;
+
+const int G = ${BLADE_G};
+const float CS = ${BLADE_CELL.toFixed(3)};
+const float TY[4] = float[4](0.0, 0.35, 0.70, 1.0);
+const float TW[4] = float[4](1.0, 0.85, 0.50, 0.0);
+const float ST[10] = float[10](1.0, 2.5, 5.0, 9.0, 15.0, 25.0, 40.0, 60.0, 90.0, 130.0);
+
+float hh(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+
+void main(){
+  int id = gl_InstanceID;
+  vec2 cell = floor(camPos.xz / CS) - float(G/2) + vec2(float(id % G), float(id / G));
+  vec2 cw = mod(cell, 4096.0);
+  float h1 = hh(cw), h2 = hh(cw + 17.3), h3 = hh(cw + 41.7), h4 = hh(cw + 73.1), h5 = hh(cw + 101.9);
+
+  vec2 xz = (cell + vec2(h1, h2)) * CS;
+  float dist = length(xz - camPos.xz);
+  float lod = 1.0 - smoothstep(18.0, 25.0, dist);
+  float y0 = H(xz);
+
+  // only on gentle, low ground (matches where the terrain shader paints grass)
+  float e = 0.75;
+  vec3 n = normalize(vec3(H(xz - vec2(e,0.)) - H(xz + vec2(e,0.)), 2.*e,
+                          H(xz - vec2(0.,e)) - H(xz + vec2(0.,e))));
+  float rk = max(max(smoothstep(0.10, 0.26, 1.0 - n.y), smoothstep(45., 85., y0)), smoothstep(0.03, 0.35, R(xz)));
+  lod *= 1.0 - smoothstep(0.3, 0.9, rk);
+  lod *= smoothstep(0.04, 0.16, h3);          // a few bare patches
+  for(int c = 0; c < 8; c++){
+    if(c >= nCracks) break;
+    lod *= smoothstep(0.5, 1.3, length(wrapD(xz - cracks[c].xy)));
+  }
+
+  if(lod < 0.01){ gl_Position = vec4(2.,2.,2.,1.); vCol = vec3(0.); return; }
+
+  int vid = gl_VertexID;
+  int lv = min(vid/2, 3);
+  float side = (vid % 2 == 0) ? -1.0 : 1.0;
+  float t = TY[lv], w = TW[lv];
+
+  float ang = h4 * 6.2832;
+  vec2 sv = vec2(cos(ang), sin(ang));
+  vec2 fw = vec2(-sin(ang), cos(ang));
+  float height = (0.28 + 0.55*h5*h5 + 0.12*h2) * lod;
+  float width  = 0.034 * (0.8 + 0.6*h3) * lod;
+  float bend   = (0.12 + 0.5*h2) * height;
+  float sway   = sin(time*1.7 + xz.x*0.35 + xz.y*0.27) * 0.07 * height;
+
+  vec3 pos = vec3(xz.x, y0 - 0.05, xz.y);
+  pos.xz += sv * side * w * width + fw * (bend + sway) * t * t;
+  pos.y  += height * t - 0.25 * bend * t * t;
+
+  vec3 baseC = mix(vec3(0.06,0.18,0.04), vec3(0.18,0.42,0.08), h1);
+  vec3 tipC  = mix(vec3(0.34,0.58,0.13), vec3(0.62,0.74,0.24), h2);
+  vec3 col = mix(baseC, tipC, pow(t, 0.8));
+  col = mix(col, vec3(0.58,0.54,0.20), step(0.92, fract(h1*7.3)) * t);   // dry blades
+
+  vec3 nn = normalize(vec3(fw.x*0.5, 1.0, fw.y*0.5));
+  float dk = dayK();
+  float shd = 1.0;
+  if(dk > 0.001){
+    vec3 q0 = vec3(xz.x, y0 + 0.3, xz.y);
+    for(int i = 0; i < 10; i++){
+      float st = ST[i];
+      vec3 q = q0 + SUN*st;
+      shd = min(shd, clamp(6.0*(q.y - H(q.xz))/st, 0., 1.));
+    }
+  }
+  float sunL = (max(dot(nn, SUN), 0.0)*0.7 + 0.25) * dk * shd;
+  vec3 amb = vec3(0.50,0.62,0.85) * (0.30 + 0.25*n.y) * (0.35 + 0.65*t) * mix(0.16, 1.0, dk);   // darker at the roots
+  vec3 lit = col * (amb + sunColor() * sunL * (0.4 + 0.6*t) * 0.95);
+  float fog = 1.0 - exp(-dist*0.0014);
+  vCol = mix(lit, horizonCol(), clamp(fog, 0., 1.));
+
+  vec3 rel = pos - camPos;
+  float zv = dot(rel, cF), xv = dot(rel, cR), yv = dot(rel, cU);
+  gl_Position = vec4(xv/(tanH*aspect), yv/tanH,
+                     (FAR+NEAR)/(FAR-NEAR)*zv - 2.*FAR*NEAR/(FAR-NEAR), zv);
+}`;
+const bfs = `#version 300 es
+precision highp float;
+in vec3 vCol; out vec4 o;
+void main(){ o = vec4(vCol, 1.0); }`;
+
+function sh(type, src){
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s);
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog); gl.useProgram(prog);
+
+const quadVAO = gl.createVertexArray();
+gl.bindVertexArray(quadVAO);
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog, 'p');
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+const emptyVAO = gl.createVertexArray();
+const bprog = gl.createProgram();
+gl.attachShader(bprog, sh(gl.VERTEX_SHADER, bvs));
+gl.attachShader(bprog, sh(gl.FRAGMENT_SHADER, bfs));
+gl.linkProgram(bprog);
+if(!gl.getProgramParameter(bprog, gl.LINK_STATUS)) throw gl.getProgramInfoLog(bprog);
+const BU = n => gl.getUniformLocation(bprog, n);
+const bCam=BU('camPos'), bR=BU('cR'), bU=BU('cU'), bF=BU('cF'),
+      bTan=BU('tanH'), bAsp=BU('aspect'), bTime=BU('time');
+const bCr = BU('cracks'), bNC = BU('nCracks'), bSun = BU('SUN');
+gl.useProgram(bprog); gl.uniform1i(BU('hm'), 0);
+gl.useProgram(prog);
+
+// ---- first-person fist: a few lit boxes drawn in view space ----
+const fvs = `#version 300 es
+in vec3 a; in vec3 nrm;
+uniform vec3 off, size, col;
+uniform float tanH, aspect;
+out vec3 vC;
+void main(){
+  vec3 v = off + a*size;
+  float n = 0.02, f = 20.0;
+  gl_Position = vec4(v.x/(tanH*aspect), v.y/tanH, (f+n)/(f-n)*v.z - 2.*f*n/(f-n), v.z);
+  vec3 L = normalize(vec3(-0.35, 0.8, -0.45));
+  vC = col * (max(dot(nrm, L), 0.0)*0.7 + 0.38);
+}`;
+const ffs = `#version 300 es
+precision highp float;
+in vec3 vC; out vec4 o;
+void main(){ o = vec4(vC, 1.0); }`;
+const fprog = gl.createProgram();
+gl.attachShader(fprog, sh(gl.VERTEX_SHADER, fvs));
+gl.attachShader(fprog, sh(gl.FRAGMENT_SHADER, ffs));
+gl.bindAttribLocation(fprog, 0, 'a');
+gl.bindAttribLocation(fprog, 1, 'nrm');
+gl.linkProgram(fprog);
+if(!gl.getProgramParameter(fprog, gl.LINK_STATUS)) throw gl.getProgramInfoLog(fprog);
+const FU = n => gl.getUniformLocation(fprog, n);
+const fOff=FU('off'), fSize=FU('size'), fCol=FU('col'), fTan=FU('tanH'), fAsp=FU('aspect');
+const cube = [];
+for(let ax = 0; ax < 3; ax++) for(const sg of [-1, 1]){
+  const u = (ax+1)%3, v = (ax+2)%3;
+  const q = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([su,sv]) => {
+    const p = [0,0,0]; p[ax] = 0.5*sg; p[u] = 0.5*su; p[v] = 0.5*sv; return p;
+  });
+  const nrm = [0,0,0]; nrm[ax] = sg;
+  for(const k of [0,1,2,0,2,3]) cube.push(...q[k], ...nrm);
+}
+const fistVAO = gl.createVertexArray();
+gl.bindVertexArray(fistVAO);
+const fbuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, fbuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+gl.bindVertexArray(null);
+
+// ---- monsters: boxes placed in the world, depth-tested against terrain ----
+const mvs = `#version 300 es
+in vec3 a; in vec3 nrm;
+uniform vec3 camPos, cR, cU, cF, base, boxOff, boxSize, pivot, col;
+uniform float tanH, aspect, yaw, rx, emis, tint, sunVis;
+out vec3 vC;
+const float NEAR = 0.1, FAR = 4000.0;
+${SKYFN}
+vec3 rotX(vec3 v, float t){ float c = cos(t), s = sin(t); return vec3(v.x, v.y*c - v.z*s, v.y*s + v.z*c); }
+vec3 rotY(vec3 v, float t){ float c = cos(t), s = sin(t); return vec3(v.x*c + v.z*s, v.y, -v.x*s + v.z*c); }
+void main(){
+  vec3 l = boxOff + a*boxSize;
+  l = pivot + rotX(l - pivot, rx);
+  vec3 w = base + rotY(l, yaw);
+  vec3 n = rotY(rotX(nrm, rx), yaw);
+  vec3 rel = w - camPos;
+  float zv = dot(rel, cF), xv = dot(rel, cR), yv = dot(rel, cU);
+  gl_Position = vec4(xv/(tanH*aspect), yv/tanH,
+                     (FAR+NEAR)/(FAR-NEAR)*zv - 2.*FAR*NEAR/(FAR-NEAR), zv);
+  float dk = dayK();
+  vec3 c = col * (max(dot(n, SUN), 0.0)*0.8*dk*sunVis + 0.4*mix(0.22, 1.0, dk));
+  c = mix(c, col, emis);
+  c = mix(c, vec3(1.0,0.1,0.08), tint);
+  float fog = 1.0 - exp(-length(rel)*0.0014);
+  vC = mix(c, horizonCol(), clamp(fog, 0., 1.));
+}`;
+const mprog = gl.createProgram();
+gl.attachShader(mprog, sh(gl.VERTEX_SHADER, mvs));
+gl.attachShader(mprog, sh(gl.FRAGMENT_SHADER, ffs));
+gl.bindAttribLocation(mprog, 0, 'a');
+gl.bindAttribLocation(mprog, 1, 'nrm');
+gl.linkProgram(mprog);
+if(!gl.getProgramParameter(mprog, gl.LINK_STATUS)) throw gl.getProgramInfoLog(mprog);
+const MU = n => gl.getUniformLocation(mprog, n);
+const mCam=MU('camPos'), mR=MU('cR'), mUp=MU('cU'), mF=MU('cF'), mBase=MU('base'), mOff=MU('boxOff'),
+      mSize=MU('boxSize'), mPivot=MU('pivot'), mCol=MU('col'), mTan=MU('tanH'), mAsp=MU('aspect'),
+      mYaw=MU('yaw'), mRx=MU('rx'), mEmis=MU('emis'), mTint=MU('tint'), mSun=MU('SUN'), mVis=MU('sunVis');
+
+const tex = gl.createTexture();
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, N, N, 0, gl.RG, gl.FLOAT, heights);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+const U = n => gl.getUniformLocation(prog, n);
+const uCr=U('cracks'), uNC=U('nCracks'), uSun=U('SUN');
+const uPos=U('pos'), uYaw=U('yaw'), uPitch=U('pitch'), uAspect=U('aspect'),
+      uTan=U('tanH'), uPix=U('pixAng'), uMax=U('maxH');
+gl.uniform1i(U('hm'), 0);
+gl.uniform1f(uMax, maxH + 1);
+
+const FOV = 75 * Math.PI/180, TANH = Math.tan(FOV/2);
+function resize(){
+  // cap the pixel count: every pixel marches a ray across the terrain
+  const dpr = window.devicePixelRatio || 1;
+  const scale = Math.min(dpr, Math.sqrt(1.5e6/(innerWidth*innerHeight)), 1.5);
+  canvas.width  = Math.max(2, Math.round(innerWidth*scale));
+  canvas.height = Math.max(2, Math.round(innerHeight*scale));
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener('resize', resize); resize();
+
+// ---------------------------------------------------------------------------
+// Player
+// ---------------------------------------------------------------------------
+const EYE = 1.7, WALK = 4, SPRINT = 8;
+const GRAVITY = 22, JUMP = 8, MAX_SLOPE = 1.3; // 1.3 ≈ 52° — steeper is a cliff
+const player = {x:0, z:0, yaw:0, pitch:0, y:heightAt(0,0), vy:0, grounded:true};
+const keys = {};
+addEventListener('keydown', e => {
+  if(dead || !started) return;
+  if(e.code === 'Space') e.preventDefault();
+  keys[e.code] = true;
+});
+addEventListener('keyup',   e => { keys[e.code] = false; });
+addEventListener('blur', () => { for(const k in keys) keys[k] = false; });
+
+canvas.addEventListener('click', () => { if(document.pointerLockElement !== canvas) canvas.requestPointerLock(); });
+let holding = false;
+addEventListener('mousedown', e => { if(e.button === 0 && document.pointerLockElement === canvas) holding = true; });
+addEventListener('mouseup',   e => { if(e.button === 0) holding = false; });
+document.addEventListener('pointerlockchange', () => { if(document.pointerLockElement !== canvas) holding = false; });
+addEventListener('mousemove', e => {
+  if(document.pointerLockElement !== canvas) return;
+  player.yaw   += e.movementX * 0.0022;
+  player.pitch -= e.movementY * 0.0022;
+  player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
+});
+
+function canMove(nx, nz){
+  const dist = Math.hypot(nx - player.x, nz - player.z);
+  return heightAt(nx, nz) - player.y <= Math.max(0.03, dist*MAX_SLOPE);
+}
+
+// ---- punching: each hit digs the terrain; rocks are worn away first ----
+const FIST_REACH = 2.6, SWORD_REACH = 2.6, PUNCH_TIME = 0.8;
+let weapon = null;   // key of SWORD_TYPES, or null for bare fist
+const BREAK_R = 1.3, BREAK_DEPTH = 1.0, MIN_H = -60, CRACK_LINK = 1.9, MAX_CRACKS = 8;
+const punch = {t: 1, hit: true};
+const cracks = [];                      // {x, z, seed}
+const crackData = new Float32Array(MAX_CRACKS*3);
+
+// wind-up, then a hard thrust that lands at t = 0.5, then recover
+function punchE(t){
+  const k = [[0,0],[0.3,-0.35],[0.5,1],[1,0]];
+  for(let i = 1; i < k.length; i++) if(t <= k[i][0]){
+    const u = (t - k[i-1][0])/(k[i][0] - k[i-1][0]), m = u*u*(3 - 2*u);
+    return k[i-1][1] + (k[i][1] - k[i-1][1])*m;
+  }
+  return 0;
+}
+const wrapD = (a, b) => (a - b) - PERIOD*Math.round((a - b)/PERIOD);
+
+// second hit: the cracked ground gives way in an irregular crater; rocks shatter
+function breakArea(cx, cz){
+  cx = ((cx % PERIOD) + PERIOD) % PERIOD;
+  cz = ((cz % PERIOD) + PERIOD) % PERIOD;
+  const ph1 = Math.random()*6.28, ph2 = Math.random()*6.28, ph3 = Math.random()*6.28;
+  const reach = BREAK_R*1.45;
+  const i0 = Math.floor((cx - reach)/CELL), i1 = Math.ceil((cx + reach)/CELL);
+  const j0 = Math.floor((cz - reach)/CELL), j1 = Math.ceil((cz + reach)/CELL);
+  for(let j = j0; j <= j1; j++) for(let i = i0; i <= i1; i++){
+    const dx = i*CELL - cx, dz = j*CELL - cz;
+    const d = Math.hypot(dx, dz);
+    const a = Math.atan2(dz, dx);
+    const rmod = 1 + 0.22*Math.sin(3*a + ph1) + 0.14*Math.sin(5*a + ph2) + 0.08*Math.sin(9*a + ph3);
+    const dn = d / (BREAK_R*rmod);
+    if(dn >= 1) continue;
+    const c = Math.cos(Math.PI*0.5*dn);
+    const amt = BREAK_DEPTH * Math.pow(c, 1.3) * (0.85 + 0.3*hash2(i & 1023, j & 1023));
+    const k = (((j & (N-1))*N) + (i & (N-1))) * 2;
+    heights[k+1] = Math.max(0, heights[k+1] - amt*1.5);   // rocks shatter faster than soil
+    heights[k]   = Math.max(MIN_H, heights[k] - amt);
+  }
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, N, gl.RG, gl.FLOAT, heights);
+}
+
+function doPunch(){
+  const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
+  const sp = Math.sin(player.pitch), cp = Math.cos(player.pitch);
+  const dx = s*cp, dy = sp, dz = -c*cp;
+  const ox = player.x, oy = player.y + EYE, oz = player.z;
+  const reach = weapon ? SWORD_REACH : FIST_REACH;
+  for(let t = 0.2; t <= reach; t += 0.08){
+    const x = ox + dx*t, y = oy + dy*t, z = oz + dz*t;
+    for(const m of monsters){
+      if(Math.hypot(x - m.x, z - m.z) < 0.8*MS && y > m.y - 0.1 && y < m.y + 2.5*MS){
+        hitMonster(m); return;
+      }
+    }
+    if(y < heightAt(x, z)){
+      const idx = cracks.findIndex(k => Math.hypot(wrapD(x, k.x), wrapD(z, k.z)) < CRACK_LINK);
+      if(idx >= 0){                       // already cracked -> break it open
+        const k = cracks.splice(idx, 1)[0];
+        breakArea(k.x, k.z);
+      } else {                            // first hit -> crack the surface
+        cracks.push({x, z, seed: Math.random()*50});
+        if(cracks.length > MAX_CRACKS) cracks.shift();
+      }
+      return;
+    }
+  }
+}
+
+// ---- health ----
+const hpFill = document.getElementById('hpfill'), hpTxt = document.getElementById('hptxt');
+const flashEl = document.getElementById('flash'), deadEl = document.getElementById('dead');
+const MAX_HP = 100, HIT_DAMAGE = 10, REGEN_DELAY = 30, REGEN_RATE = 2;   // hp/s after 30 s without damage
+const hp = {v: MAX_HP, last: -1e9};
+let gameT = 0, shownHp = -1, dead = false, started = false;
+
+function hurt(n){
+  hp.v -= n; hp.last = gameT;
+  flashEl.style.transition = 'none'; flashEl.style.opacity = '0.4';
+  void flashEl.offsetWidth;
+  flashEl.style.transition = 'opacity .6s'; flashEl.style.opacity = '0';
+}
+function showHp(){
+  const v = Math.max(0, Math.round(hp.v));
+  if(v === shownHp) return;
+  shownHp = v;
+  hpFill.style.width = v + '%';
+  hpFill.style.background = v > 60 ? '#4caf50' : v > 30 ? '#e0a21b' : '#d33';
+  hpTxt.textContent = v;
+}
+
+// ---- monsters ----
+const M_SPEED = WALK * 0.7;              // 70% of walking speed (sprinting outruns them)
+const DARK_LEVEL = 0.3, MAX_MONSTERS = 3, MONSTER_HP = 80, PUNCH_DAMAGE = 15, MS = 0.82;   // MS = monster scale
+const monsters = [];
+let nextSpawn = 8 + Math.random()*8;
+
+function removeMonster(i){
+  const m = monsters[i];
+  if(m.bar) m.bar.remove();
+  monsters.splice(i, 1);
+}
+function hitMonster(m){
+  m.hp -= weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE;
+  m.showUntil = gameT + 4;
+  m.hitT = gameT;
+  // stagger: knocked back a little and its attack is interrupted
+  const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz) || 1;
+  m.x += dx/d*0.5; m.z += dz/d*0.5;
+  if(m.atk >= 0){ m.atk = -1; m.cool = 0.7; }
+  if(m.hp <= 0) removeMonster(monsters.indexOf(m));
+}
+
+function keyf(k, t){
+  for(let i = 1; i < k.length; i++) if(t <= k[i][0]){
+    const u = (t - k[i-1][0])/(k[i][0] - k[i-1][0]), m = u*u*(3 - 2*u);
+    return k[i-1][1] + (k[i][1] - k[i-1][1])*m;
+  }
+  return 0;
+}
+const ATTACK_KEYS = [[0,0],[0.3,0.9],[0.45,-1.6],[1,0]];
+
+function die(){
+  dead = true; holding = false;
+  for(const k in keys) keys[k] = false;
+  deadEl.classList.add('show');
+  if(document.pointerLockElement) document.exitPointerLock();
+}
+function respawn(){
+  hp.v = MAX_HP; hp.last = -1e9;
+  player.x = 0; player.z = 0; player.y = heightAt(0,0); player.vy = 0; player.grounded = true;
+  while(monsters.length) removeMonster(0);
+  nextSpawn = 20;
+  punch.t = 1; punch.hit = true;
+  dead = false;
+  deadEl.classList.remove('show');
+  canvas.requestPointerLock();
+}
+document.getElementById('respawn').addEventListener('click', respawn);
+function startGame(){
+  started = true;
+  document.getElementById('start').style.display = 'none';
+  canvas.requestPointerLock();
+}
+document.getElementById('play').addEventListener('click', startGame);
+
+function updateMonsters(dt){
+  gameT += dt;
+  nextSpawn -= dt;
+  if(nextSpawn <= 0){
+    if(monsters.length >= MAX_MONSTERS){
+      nextSpawn = 20 + Math.random()*30;
+    } else {
+      // monsters only appear where it is dark: anywhere at night, or in shade during the day
+      const sun = sunDir();
+      let spot = null;
+      for(let tries = 0; tries < 24 && !spot; tries++){
+        const ang = Math.random()*6.2832, d = 35 + Math.random()*35;
+        const x = player.x + Math.cos(ang)*d, z = player.z + Math.sin(ang)*d;
+        if(lightAt(x, z, sun) < DARK_LEVEL) spot = [x, z];
+      }
+      if(spot){
+        monsters.push({x: spot[0], z: spot[1], y: 0,
+                       yaw: 0, phase: Math.random()*6, atk: -1, cool: 1, hit: false, moving: false,
+                       hp: MONSTER_HP, bar: null, showUntil: 0, hitT: -1e9});
+        nextSpawn = 20 + Math.random()*30;
+      } else nextSpawn = 4;                // nowhere dark nearby: look again shortly
+    }
+  }
+  for(let i = monsters.length - 1; i >= 0; i--){
+    const m = monsters[i];
+    const dx = player.x - m.x, dz = player.z - m.z, d = Math.hypot(dx, dz);
+    if(d > 160){ removeMonster(i); continue; }
+    m.yaw = Math.atan2(dx, dz);
+    if(m.atk >= 0){
+      m.atk += dt / 0.7; m.moving = false;
+      if(!m.hit && m.atk >= 0.45){
+        m.hit = true;
+        if(d < 2.4 && Math.abs(player.y - m.y) < 2.6) hurt(HIT_DAMAGE);
+      }
+      if(m.atk >= 1){ m.atk = -1; m.cool = 0.9; }
+    } else {
+      m.cool -= dt;
+      if(d > 1.7){
+        const st = M_SPEED * dt;
+        m.x += dx/d*st; m.z += dz/d*st;
+        m.moving = true; m.phase += dt * M_SPEED * 2.6;
+      } else {
+        m.moving = false;
+        if(m.cool <= 0){ m.atk = 0; m.hit = false; }
+      }
+    }
+    m.y = heightAt(m.x, m.z);
+  }
+  // slow passive healing once 30 s have passed without taking damage
+  if(gameT - hp.last > REGEN_DELAY && hp.v < MAX_HP) hp.v = Math.min(MAX_HP, hp.v + REGEN_RATE*dt);
+  if(hp.v <= 0 && !dead) die();
+  showHp();
+}
+
+// monster health bars: HTML bars projected onto the screen, shown for a few seconds after a hit
+function updateBars(cx, cy, cz, cR_, cU_, cF_, aspect){
+  for(const m of monsters){
+    let show = gameT < m.showUntil;
+    let sx = 0, sy = 0;
+    if(show){
+      const hx = m.x, hy = m.y + 2.75*MS, hz = m.z;
+      const rx = hx - cx, ry = hy - cy, rz = hz - cz;
+      const zv = rx*cF_[0] + ry*cF_[1] + rz*cF_[2];
+      if(zv < 0.3 || zv > 80) show = false;
+      else {
+        const xv = rx*cR_[0] + ry*cR_[1] + rz*cR_[2];
+        const yv = rx*cU_[0] + ry*cU_[1] + rz*cU_[2];
+        sx = (xv/(zv*TANH*aspect)*0.5 + 0.5) * innerWidth;
+        sy = (1 - (yv/(zv*TANH)*0.5 + 0.5)) * innerHeight;
+        const len = Math.hypot(rx, ry, rz);
+        for(let t = 1.0; t < len; t += 0.6){            // hidden if terrain is in the way
+          const f = t/len;
+          if(cy + ry*f < heightAt(cx + rx*f, cz + rz*f)){ show = false; break; }
+        }
+      }
+    }
+    if(show && !m.bar){
+      m.bar = document.createElement('div'); m.bar.className = 'mbar';
+      m.bar.innerHTML = '<i></i>'; document.body.appendChild(m.bar);
+    }
+    if(m.bar){
+      m.bar.style.display = show ? 'block' : 'none';
+      if(show){
+        m.bar.style.left = sx + 'px'; m.bar.style.top = sy + 'px';
+        m.bar.firstChild.style.width = Math.max(0, m.hp/MONSTER_HP*100) + '%';
+      }
+    }
+  }
+}
+
+function drawSwords(sunNow){
+  gl.uniform1f(mTint, 0); gl.uniform1f(mRx, 0); gl.uniform1f(mEmis, 0);
+  for(const w of worldSwords){
+    if(Math.hypot(wrapD(w.x, player.x), wrapD(w.z, player.z)) > 400) continue;
+    const t = SWORD_TYPES[w.type];
+    gl.uniform3f(mBase, w.x, heightAt(w.x, w.z), w.z);
+    gl.uniform1f(mYaw, w.yaw);
+    gl.uniform1f(mVis, shadowAt(w.x, w.z, sunNow));
+    const part = (ox,oy,oz, sx,sy,sz, c) => {
+      gl.uniform3f(mOff, ox,oy,oz); gl.uniform3f(mSize, sx,sy,sz); gl.uniform3f(mCol, c[0],c[1],c[2]);
+      gl.uniform3f(mPivot, 0,0,0); gl.uniform1f(mRx, w.lean);
+      gl.drawArrays(gl.TRIANGLES, 0, 36);
+    };
+    part(0,  0.30, 0, 0.13, 1.30, 0.035, t.blade);          // blade, buried point-down
+    part(0,  0.98, 0, 0.58, 0.075, 0.10, t.guard);          // crossguard
+    part(0,  1.20, 0, 0.07, 0.40, 0.07, [0.22,0.13,0.08]);  // grip
+    part(0,  1.45, 0, 0.12, 0.10, 0.12, t.guard);           // pommel
+  }
+}
+
+function drawMonsters(){
+  const sunNow = sunDir();
+  for(const m of monsters){
+    gl.uniform3f(mBase, m.x, m.y, m.z);
+    gl.uniform1f(mYaw, m.yaw);
+    gl.uniform1f(mVis, shadowAt(m.x, m.z, sunNow));
+    gl.uniform1f(mTint, Math.max(0, 1 - (gameT - m.hitT)/0.3) * 0.85);   // flashes red when hit
+    const sw = m.moving ? Math.sin(m.phase)*0.7 : 0;
+    const atk = m.atk >= 0 ? keyf(ATTACK_KEYS, m.atk) : 0;
+    const part = (ox,oy,oz, sx,sy,sz, r,g,b, px,py,pz, rx, emis) => {
+      gl.uniform3f(mOff, ox*MS,oy*MS,oz*MS); gl.uniform3f(mSize, sx*MS,sy*MS,sz*MS); gl.uniform3f(mCol, r,g,b);
+      gl.uniform3f(mPivot, px*MS,py*MS,pz*MS); gl.uniform1f(mRx, rx); gl.uniform1f(mEmis, emis);
+      gl.drawArrays(gl.TRIANGLES, 0, 36);
+    };
+    part(-0.2,0.45,0, 0.3,0.9,0.32, 0.18,0.09,0.22, -0.2,0.9,0,  sw, 0);       // legs
+    part( 0.2,0.45,0, 0.3,0.9,0.32, 0.18,0.09,0.22,  0.2,0.9,0, -sw, 0);
+    part(0,1.4,0, 0.95,1.05,0.55, 0.26,0.12,0.30, 0,0,0, 0, 0);               // torso
+    part(0,2.17,0.04, 0.52,0.5,0.5, 0.36,0.20,0.40, 0,0,0, 0, 0);             // head
+    part(-0.14,2.22,0.3, 0.13,0.08,0.06, 1.0,0.15,0.1, 0,0,0, 0, 1);          // eyes
+    part( 0.14,2.22,0.3, 0.13,0.08,0.06, 1.0,0.15,0.1, 0,0,0, 0, 1);
+    part(-0.64,1.47,0, 0.26,0.95,0.28, 0.22,0.10,0.26, -0.64,1.95,0, -sw*0.8, 0);  // left arm
+    part( 0.64,1.47,0, 0.26,0.95,0.28, 0.22,0.10,0.26,  0.64,1.95,0, m.atk >= 0 ? atk : sw*0.8, 0); // right arm (punches)
+  }
+}
+
+// ---- sun: rises in the east, crosses the sky in front of the start, sets, and a night follows ----
+const DAY_LEN = 240;                 // seconds for a full day/night cycle
+function sunDir(){
+  const a = 0.5 + (mpRoom ? Date.now()/1000 : gameT) * 2*Math.PI / DAY_LEN;   // multiplayer: wall clock, so everyone sees the same sun
+  const x = Math.cos(a), y = Math.sin(a)*0.9 + 0.18, z = -0.9;
+  const l = Math.hypot(x, y, z);
+  return [x/l, y/l, z/l];
+}
+
+// How lit is a spot? 0 = dark (night, in shadow, or facing away from the sun), 1 = full sun.
+function shadowAt(x, z, sun){
+  if(sun[1] < -0.2) return 0;
+  const y0 = heightAt(x, z) + 0.3;
+  let shd = 1;
+  for(const t of [1, 2.5, 5, 9, 15, 25, 40, 60, 90, 130, 180]){
+    const hh = y0 + sun[1]*t - heightAt(x + sun[0]*t, z + sun[2]*t);
+    shd = Math.min(shd, Math.max(0, Math.min(1, 6*hh/t)));
+  }
+  return shd;
+}
+function lightAt(x, z, sun){
+  const k = sstep(-0.12, 0.22, sun[1]);
+  if(k < 0.001) return 0;
+  const e = CELL;
+  const nx = heightAt(x - e, z) - heightAt(x + e, z), nz = heightAt(x, z - e) - heightAt(x, z + e), ny = 2*e;
+  const nl = Math.hypot(nx, ny, nz);
+  const ndl = (nx*sun[0] + ny*sun[1] + nz*sun[2]) / nl;
+  if(ndl <= 0) return 0;
+  return k * shadowAt(x, z, sun) * Math.min(1, ndl*2);
+}
+
+// ---- picking swords up: hold E next to one ----
+const PICK_R = 3.0, PICK_TIME = 0.8;
+const promptEl = document.getElementById('prompt'), ptxt = document.getElementById('ptxt'),
+      pfill = document.getElementById('pfill'), wpnEl = document.getElementById('wpn');
+let pickTarget = null, pickProg = 0;
+function updatePickup(dt){
+  let best = null, bd = PICK_R;
+  if(!dead) for(const w of worldSwords){
+    const d = Math.hypot(wrapD(w.x, player.x), wrapD(w.z, player.z));
+    if(d < bd && Math.abs(heightAt(w.x, w.z) - player.y) < 3.5){ bd = d; best = w; }
+  }
+  if(best !== pickTarget){ pickTarget = best; pickProg = 0; }
+  if(pickTarget && keys.KeyE){
+    pickProg += dt / PICK_TIME;
+    if(pickProg >= 1){
+      const w = pickTarget;
+      if(weapon) worldSwords.push({x: player.x, z: player.z, type: weapon, yaw: Math.random()*6.28, lean: 0.1});   // swap: drop the old one
+      weapon = w.type;
+      worldSwords.splice(worldSwords.indexOf(w), 1);
+      pickTarget = null; pickProg = 0;
+      const t = SWORD_TYPES[weapon];
+      wpnEl.textContent = t.name + ' (' + t.dmg + ' dmg)';
+    }
+  } else pickProg = Math.max(0, pickProg - dt*2);
+  if(pickTarget){
+    const t = SWORD_TYPES[pickTarget.type];
+    promptEl.style.display = 'block';
+    ptxt.textContent = 'Hold E to pick up ' + t.name + ' (' + t.dmg + ' dmg)';
+    pfill.style.width = Math.min(100, pickProg*100) + '%';
+  } else promptEl.style.display = 'none';
+}
+
+// ---- multiplayer: players see each other through the artifact's `room` capability ----
+// Everyone is in the same deterministic world; only positions, punches and weapons are shared.
+// Digging, monsters and sword pickups stay local to each player.
+let mpRoom = null, mpCode = '';
+const remote = new Map();            // peer id -> smoothed avatar state
+const myName = 'Player ' + (1000 + Math.floor(Math.random()*9000));
+let lastSend = 0, lastMP = performance.now();
+const mpInfo = document.getElementById('mpinfo');
+
+// ---- WebRTC transport: Firebase Realtime Database for signalling, STUN/TURN for connecting ----
+const FIREBASE_READY = !FIREBASE_CONFIG.apiKey.startsWith('YOUR_');
+const FB = 'https://www.gstatic.com/firebasejs/10.12.2/';
+const ICE_LIST = ICE_SERVERS.filter(sv => !JSON.stringify(sv.urls).includes('YOUR_'));
+
+// Returns an object with the same shape as the artifact room: presence(patch) and peers().
+async function connectWebRTC(code){
+  const [A, AU, D] = await Promise.all([import(FB + 'firebase-app.js'), import(FB + 'firebase-auth.js'),
+                                        import(FB + 'firebase-database.js')]);
+  const app = A.initializeApp(FIREBASE_CONFIG);
+  const auth = AU.getAuth(app);
+  await AU.setPersistence(auth, AU.inMemoryPersistence);     // a fresh anonymous id every visit
+  const uid = (await AU.signInAnonymously(auth)).user.uid;
+  const db = D.getDatabase(app);
+  const base = 'rooms/' + code;
+  const links = new Map();                                   // other player's id -> connection
+  const state = {};                                          // my presence, resent to everyone
+  let chain = Promise.resolve();
+  const enqueue = fn => { chain = chain.then(fn).catch(() => {}); };
+
+  const sendSignal = (to, type, data) =>
+    D.set(D.push(D.ref(db, `${base}/signals/${to}/${uid}`)), {type, data, t: Date.now()}).catch(() => {});
+  const closeLink = id => {
+    const l = links.get(id); if(!l) return;
+    try { l.dc && l.dc.close(); } catch(e){}
+    try { l.pc.close(); } catch(e){}
+    links.delete(id);
+  };
+  const pushState = l => { if(l.dc && l.dc.readyState === 'open') l.dc.send(JSON.stringify(state)); };
+
+  function newLink(id, initiator){
+    const pc = new RTCPeerConnection({iceServers: ICE_LIST, iceTransportPolicy: FORCE_TURN_RELAY ? 'relay' : 'all'});
+    const l = {pc, dc: null, open: false, presence: null, queue: []};
+    links.set(id, l);
+    pc.onicecandidate = e => { if(e.candidate) sendSignal(id, 'ice', JSON.stringify(e.candidate)); };
+    pc.onconnectionstatechange = () => { if(pc.connectionState === 'failed' || pc.connectionState === 'closed') closeLink(id); };
+    const wire = dc => {
+      l.dc = dc;
+      dc.onopen = () => { l.open = true; pushState(l); };
+      dc.onclose = () => { l.open = false; };
+      dc.onmessage = e => {
+        if(typeof e.data !== 'string' || e.data.length > 2000) return;
+        try { l.presence = JSON.parse(e.data); } catch(err){}
+      };
+    };
+    if(initiator) wire(pc.createDataChannel('game', {ordered: false, maxRetransmits: 0}));
+    else pc.ondatachannel = e => wire(e.channel);
+    setTimeout(() => { if(links.get(id) === l && !l.open) closeLink(id); }, 25000);   // give up; retried on next heartbeat
+    return l;
+  }
+  async function startOffer(id){
+    const l = newLink(id, true);
+    await l.pc.setLocalDescription(await l.pc.createOffer());
+    sendSignal(id, 'offer', JSON.stringify(l.pc.localDescription));
+  }
+  async function flush(l){ for(const c of l.queue.splice(0)) await l.pc.addIceCandidate(c).catch(() => {}); }
+  async function handleSignal(from, m){
+    if(m.type === 'offer'){
+      closeLink(from);
+      const l = newLink(from, false);
+      await l.pc.setRemoteDescription(JSON.parse(m.data));
+      await flush(l);
+      await l.pc.setLocalDescription(await l.pc.createAnswer());
+      sendSignal(from, 'answer', JSON.stringify(l.pc.localDescription));
+    } else if(m.type === 'answer'){
+      const l = links.get(from);
+      if(l && !l.pc.remoteDescription){ await l.pc.setRemoteDescription(JSON.parse(m.data)); await flush(l); }
+    } else if(m.type === 'ice'){
+      const l = links.get(from); if(!l) return;
+      const c = JSON.parse(m.data);
+      if(l.pc.remoteDescription) await l.pc.addIceCandidate(c).catch(() => {}); else l.queue.push(c);
+    }
+  }
+
+  // announce myself, then connect to everyone who is here (the lower id makes the offer)
+  const me = D.ref(db, `${base}/players/${uid}`);
+  await D.set(me, {name: myName, t: Date.now()});
+  D.onDisconnect(me).remove();
+  setInterval(() => D.set(me, {name: myName, t: Date.now()}).catch(() => {}), 20000);   // heartbeat
+  const consider = snap => {
+    const id = snap.key, v = snap.val();
+    if(id === uid || !v || Date.now() - v.t > 90000 || links.has(id)) return;
+    if(uid < id) enqueue(() => startOffer(id));
+  };
+  D.onChildAdded(D.ref(db, `${base}/players`), consider);
+  D.onChildChanged(D.ref(db, `${base}/players`), consider);
+  D.onChildRemoved(D.ref(db, `${base}/players`), snap => closeLink(snap.key));
+  D.onChildAdded(D.ref(db, `${base}/signals/${uid}`), fromSnap => {
+    const from = fromSnap.key;
+    D.onChildAdded(fromSnap.ref, msg => {
+      const v = msg.val(); D.remove(msg.ref).catch(() => {});
+      if(v) enqueue(() => handleSignal(from, v));
+    });
+  });
+
+  return {
+    presence(patch){
+      Object.assign(state, patch);
+      for(const l of links.values()) if(l.open) pushState(l);
+      return Promise.resolve();
+    },
+    peers(){
+      const out = [];
+      for(const [id, l] of links) if(l.open && l.presence) out.push({peer: id, sameTab: false, presence: l.presence});
+      return out;
+    },
+  };
+}
+
+(async function setupMP(){
+  const btn = document.getElementById('mp'), msg = document.getElementById('mpmsg');
+  const off = t => { btn.textContent = 'Multiplayer unavailable'; msg.textContent = t; };
+  const wire = join => {
+    btn.disabled = false; btn.textContent = 'Multiplayer';
+    btn.addEventListener('click', async () => {
+      const code = (document.getElementById('mpcode').value || 'main').toLowerCase().replace(/[^a-z0-9_.-]/g, '').slice(0, 24) || 'main';
+      btn.disabled = true; btn.textContent = 'Joining…'; msg.textContent = '';
+      try {
+        mpRoom = await join(code);
+        mpCode = code;
+        mpInfo.style.display = 'block';
+        startGame();
+      } catch(e){
+        btn.disabled = false; btn.textContent = 'Multiplayer';
+        msg.textContent = 'Could not connect' + (e && (e.code || e.message) ? ': ' + (e.code || e.message) : '.');
+      }
+    });
+  };
+  if(FIREBASE_READY){
+    if(!ICE_LIST.some(sv => JSON.stringify(sv.urls).includes('turn'))) console.warn('No TURN server configured: some players may not be able to connect.');
+    return wire(connectWebRTC);
+  }
+  try {
+    if(!(window.claude && window.claude.use)) return off('Multiplayer works when the game is opened from its published page.');
+    const lobby = await window.claude.use('room');
+    if(!lobby) return off('Multiplayer needs you to be signed in and invited to this page.');
+    wire(code => lobby.join('game-' + code));
+  } catch(e){ off('Multiplayer is unavailable right now.'); }
+})();
+
+function hueRGB(str){
+  let h = 0; for(let i = 0; i < str.length; i++) h = (h*31 + str.charCodeAt(i)) >>> 0;
+  const a = (h % 360)/60, f = a - Math.floor(a), v = 0.75, sat = 0.6;
+  const p = v*(1 - sat), q = v*(1 - sat*f), t = v*(1 - sat*(1 - f));
+  return [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][Math.floor(a) % 6];
+}
+
+function updateMP(){
+  if(!mpRoom) return;
+  const nowMs = performance.now();
+  const rdt = Math.min((nowMs - lastMP)/1000, 0.1); lastMP = nowMs;
+  if(nowMs - lastSend > 66){                       // ~15 updates a second
+    lastSend = nowMs;
+    const r2 = v => Math.round(v*100)/100;
+    mpRoom.presence({x: r2(player.x), y: r2(player.y), z: r2(player.z), yaw: r2(player.yaw),
+                     pt: punch.t >= 1 ? 1 : r2(punch.t), w: weapon || '', n: myName, dd: dead ? 1 : 0}).catch(() => {});
+  }
+  const seen = new Set(), f = 1 - Math.exp(-rdt*12);
+  for(const p of mpRoom.peers()){
+    if(p.sameTab) continue;
+    const s = p.presence;
+    if(!s || typeof s.x !== 'number' || typeof s.z !== 'number') continue;
+    seen.add(p.peer);
+    let r = remote.get(p.peer);
+    if(!r){ r = {x: s.x, y: s.y, z: s.z, yaw: s.yaw || 0, phase: 0, moving: false, col: hueRGB(p.peer), tag: null}; remote.set(p.peer, r); }
+    const dx = s.x - r.x, dz = s.z - r.z;
+    r.moving = Math.hypot(dx, dz) > 0.04;
+    if(r.moving) r.phase += rdt*9;
+    r.x += dx*f; r.z += dz*f; r.y += ((typeof s.y === 'number' ? s.y : r.y) - r.y)*f;
+    const dyaw = (((s.yaw || 0) - r.yaw + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI;
+    r.yaw += dyaw*f;
+    r.pt = typeof s.pt === 'number' ? s.pt : 1;
+    r.w = typeof s.w === 'string' ? s.w : '';
+    r.n = typeof s.n === 'string' ? s.n.slice(0, 20) : 'Player';
+    r.dd = !!s.dd;
+  }
+  for(const [k, r] of remote) if(!seen.has(k)){ if(r.tag) r.tag.remove(); remote.delete(k); }
+  mpInfo.textContent = 'Multiplayer · room ' + mpCode + ' · ' + (remote.size + 1) + ' player' + (remote.size ? 's' : '');
+}
+
+const MSP = 0.78;   // avatar scale
+function drawPlayers(sunNow){
+  gl.uniform1f(mTint, 0); gl.uniform1f(mEmis, 0);
+  for(const r of remote.values()){
+    if(r.dd) continue;
+    gl.uniform3f(mBase, r.x, r.y, r.z);
+    gl.uniform1f(mYaw, Math.PI - r.yaw);
+    gl.uniform1f(mVis, shadowAt(r.x, r.z, sunNow));
+    const sw = r.moving ? Math.sin(r.phase)*0.7 : 0;
+    const armed = r.w && SWORD_TYPES[r.w];
+    const atk = r.pt < 1 ? keyf(ATTACK_KEYS, r.pt) : (armed ? -0.55 : sw*0.8);
+    const c = r.col, skin = [0.88,0.67,0.52], pants = [0.18,0.20,0.30];
+    const part = (ox,oy,oz, sx,sy,sz, col, px,py,pz, rx) => {
+      gl.uniform3f(mOff, ox*MSP,oy*MSP,oz*MSP); gl.uniform3f(mSize, sx*MSP,sy*MSP,sz*MSP);
+      gl.uniform3f(mCol, col[0],col[1],col[2]); gl.uniform3f(mPivot, px*MSP,py*MSP,pz*MSP); gl.uniform1f(mRx, rx);
+      gl.drawArrays(gl.TRIANGLES, 0, 36);
+    };
+    part(-0.2,0.45,0, 0.3,0.9,0.32, pants, -0.2,0.9,0,  sw);
+    part( 0.2,0.45,0, 0.3,0.9,0.32, pants,  0.2,0.9,0, -sw);
+    part(0,1.4,0, 0.95,1.05,0.55, c, 0,0,0, 0);
+    part(0,2.17,0.04, 0.52,0.5,0.5, skin, 0,0,0, 0);
+    part(-0.64,1.47,0, 0.26,0.95,0.28, c, -0.64,1.95,0, -sw*0.8);
+    part( 0.64,1.47,0, 0.26,0.95,0.28, c,  0.64,1.95,0, atk);
+    if(armed){
+      const t = SWORD_TYPES[r.w];
+      part(0.64, 0.45, 0, 0.06, 1.05, 0.03, t.blade, 0.64,1.95,0, atk);   // blade, in the right hand
+      part(0.64, 1.00, 0, 0.34, 0.07, 0.07, t.guard, 0.64,1.95,0, atk);   // crossguard
+    }
+  }
+}
+
+// name tags over other players (HTML, hidden behind terrain)
+function updateTags(cx, cy, cz, cR_, cU_, cF_, aspect){
+  for(const r of remote.values()){
+    let show = !r.dd, sx = 0, sy = 0;
+    if(show){
+      const rx = r.x - cx, ry = r.y + 2.7*MSP - cy, rz = r.z - cz;
+      const zv = rx*cF_[0] + ry*cF_[1] + rz*cF_[2];
+      if(zv < 0.3 || zv > 120) show = false;
+      else {
+        const xv = rx*cR_[0] + ry*cR_[1] + rz*cR_[2], yv = rx*cU_[0] + ry*cU_[1] + rz*cU_[2];
+        sx = (xv/(zv*TANH*aspect)*0.5 + 0.5) * innerWidth;
+        sy = (1 - (yv/(zv*TANH)*0.5 + 0.5)) * innerHeight;
+        const len = Math.hypot(rx, ry, rz);
+        for(let t = 1.0; t < len; t += 0.8){
+          const k = t/len;
+          if(cy + ry*k < heightAt(cx + rx*k, cz + rz*k)){ show = false; break; }
+        }
+      }
+    }
+    if(show && !r.tag){ r.tag = document.createElement('div'); r.tag.className = 'ptag'; document.body.appendChild(r.tag); }
+    if(r.tag){
+      r.tag.style.display = show ? 'block' : 'none';
+      if(show){ r.tag.style.left = sx + 'px'; r.tag.style.top = sy + 'px'; if(r.tag.textContent !== r.n) r.tag.textContent = r.n; }
+    }
+  }
+}
+
+let last = performance.now();
+function frame(now){
+  const dt = (dead || !started) ? 0 : Math.min((now - last)/1000, 0.1); last = now;
+
+  let fx = (keys.KeyW?1:0) - (keys.KeyS?1:0);
+  let rx = (keys.KeyD?1:0) - (keys.KeyA?1:0);
+  const len = Math.hypot(fx, rx);
+  if(len){
+    const speed = (keys.ShiftLeft || keys.ShiftRight) ? SPRINT : WALK;
+    fx/=len; rx/=len;
+    const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
+    const nx = player.x + ( s*fx + c*rx) * speed * dt;
+    const nz = player.z + (-c*fx + s*rx) * speed * dt;
+    // walk if the slope allows it, otherwise try sliding along the hillside
+    if(canMove(nx, nz)){ player.x = nx; player.z = nz; }
+    else if(canMove(nx, player.z)) player.x = nx;
+    else if(canMove(player.x, nz)) player.z = nz;
+  }
+
+  if(holding && punch.t >= 1){ punch.t = 0; punch.hit = false; }
+  if(punch.t < 1){
+    punch.t += dt / PUNCH_TIME;
+    if(!punch.hit && punch.t >= 0.5){ punch.hit = true; doPunch(); }
+  }
+
+  updateMonsters(dt);
+  updatePickup(dt);
+  updateMP();
+
+  let jumping = false;
+  if(keys.Space && player.grounded){ player.vy = JUMP; player.grounded = false; jumping = true; }
+  player.vy -= GRAVITY * dt;
+  player.y += player.vy * dt;
+  const ground = heightAt(player.x, player.z);
+  if(player.y <= ground){ player.y = ground; player.vy = 0; player.grounded = true; }
+  else if(!jumping && player.grounded && player.y - ground < 0.4){ player.y = ground; player.vy = 0; }
+  else player.grounded = false;
+
+  const cx = player.x, cy = player.y + EYE, cz = player.z;
+  const sy = Math.sin(player.yaw), cyw = Math.cos(player.yaw);
+  const sp = Math.sin(player.pitch), cp = Math.cos(player.pitch);
+  const aspect = canvas.width / canvas.height;
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthMask(true);
+  gl.clear(gl.DEPTH_BUFFER_BIT);
+
+  // pass 1: terrain + sky (also writes depth so blades hide behind hills)
+  gl.useProgram(prog);
+  gl.bindVertexArray(quadVAO);
+  gl.depthFunc(gl.ALWAYS);
+  crackData.fill(0);
+  cracks.forEach((k, i) => { crackData[i*3] = k.x; crackData[i*3+1] = k.z; crackData[i*3+2] = k.seed; });
+  const sun = sunDir();
+  gl.uniform3f(uSun, sun[0], sun[1], sun[2]);
+  gl.uniform3fv(uCr, crackData);
+  gl.uniform1i(uNC, cracks.length);
+  gl.uniform3f(uPos, cx, cy, cz);
+  gl.uniform1f(uYaw, player.yaw);
+  gl.uniform1f(uPitch, player.pitch);
+  gl.uniform1f(uAspect, aspect);
+  gl.uniform1f(uTan, TANH);
+  gl.uniform1f(uPix, 2*TANH/canvas.height);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  // pass 2: 3D grass blades
+  gl.useProgram(bprog);
+  gl.bindVertexArray(emptyVAO);
+  gl.depthFunc(gl.LEQUAL);
+  gl.uniform3f(bSun, sun[0], sun[1], sun[2]);
+  gl.uniform3fv(bCr, crackData);
+  gl.uniform1i(bNC, cracks.length);
+  gl.uniform3f(bCam, cx, cy, cz);
+  gl.uniform3f(bR, cyw, 0, sy);
+  gl.uniform3f(bU, -sy*sp, cp, cyw*sp);
+  gl.uniform3f(bF,  sy*cp, sp, -cyw*cp);
+  gl.uniform1f(bTan, TANH);
+  gl.uniform1f(bAsp, aspect);
+  gl.uniform1f(bTime, now/1000);
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 7, BLADE_G*BLADE_G);
+
+  // pass 2b: monsters
+  if(monsters.length || worldSwords.length){
+    gl.useProgram(mprog);
+    gl.bindVertexArray(fistVAO);
+    gl.uniform3f(mSun, sun[0], sun[1], sun[2]);
+    gl.uniform3f(mCam, cx, cy, cz);
+    gl.uniform3f(mR, cyw, 0, sy);
+    gl.uniform3f(mUp, -sy*sp, cp, cyw*sp);
+    gl.uniform3f(mF,  sy*cp, sp, -cyw*cp);
+    gl.uniform1f(mTan, TANH);
+    gl.uniform1f(mAsp, aspect);
+    drawSwords(sun);
+    drawPlayers(sun);
+    drawMonsters();
+  }
+
+  updateTags(cx, cy, cz, [cyw, 0, sy], [-sy*sp, cp, cyw*sp], [sy*cp, sp, -cyw*cp], aspect);
+  updateBars(cx, cy, cz, [cyw, 0, sy], [-sy*sp, cp, cyw*sp], [sy*cp, sp, -cyw*cp], aspect);
+
+  // pass 3: the fist, on top of everything
+  gl.clear(gl.DEPTH_BUFFER_BIT);
+  gl.depthFunc(gl.LESS);
+  gl.useProgram(fprog);
+  gl.bindVertexArray(fistVAO);
+  gl.uniform1f(fTan, TANH);
+  gl.uniform1f(fAsp, aspect);
+  const e = punchE(Math.min(punch.t, 1));
+  const fxp = 0.30 - 0.22*e, fyp = -0.28 + 0.14*e, fzp = 0.55 + 0.60*e;
+  const box = (ox, oy, oz, sx, sy, sz, r, g, b) => {
+    gl.uniform3f(fOff, ox, oy, oz); gl.uniform3f(fSize, sx, sy, sz); gl.uniform3f(fCol, r, g, b);
+    gl.drawArrays(gl.TRIANGLES, 0, 36);
+  };
+  if(weapon){
+    const t = SWORD_TYPES[weapon], b = t.blade, g = t.guard;
+    box(fxp + 0.02, fyp,        fzp + 0.30, 0.016, 0.10, 0.80, b[0], b[1], b[2]);   // blade
+    box(fxp + 0.02, fyp,        fzp - 0.12, 0.030, 0.24, 0.045, g[0], g[1], g[2]);  // crossguard
+    box(fxp + 0.02, fyp,        fzp - 0.26, 0.04,  0.04, 0.22, 0.22, 0.13, 0.08);   // grip
+    box(fxp + 0.02, fyp,        fzp - 0.39, 0.06,  0.06, 0.06, g[0], g[1], g[2]);   // pommel
+  } else {
+    box(fxp + 0.03, fyp - 0.03, fzp - 0.35, 0.15, 0.15, 0.95, 0.78, 0.82, 0.88);  // smooth rectangular prism
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
