@@ -60,6 +60,9 @@
   #pause button{font:600 17px system-ui,sans-serif;width:230px;padding:11px 0;border:2px solid #fff;border-radius:6px;
                 background:rgba(0,0,0,.35);color:#fff;cursor:pointer}
   #pause button:hover{background:rgba(0,0,0,.55)}
+  #settings{display:none;flex-direction:column;align-items:center;gap:14px}
+  #tip{position:fixed;display:none;max-width:280px;padding:8px 11px;border-radius:6px;background:rgba(0,0,0,.8);color:#fff;
+       font:500 13px/1.4 system-ui,sans-serif;text-shadow:none;pointer-events:none;z-index:30}
   #binds{display:none;flex-direction:column;align-items:center;gap:8px}
   #binds .row{display:flex;align-items:center;justify-content:space-between;width:290px;font:500 15px system-ui,sans-serif}
   #binds .row button{width:130px;padding:6px 0;font-size:14px}
@@ -102,8 +105,9 @@
   <div id="home"><button id="play">Play game</button>
   <div class="mprow"><input id="mpcode" placeholder="username" maxlength="16" autocomplete="off" spellcheck="false"><button id="mp" disabled>Multiplayer…</button></div><div id="mpmsg"></div></div></div>
 <div id="pause"><h2 id="ptitle"></h2>
-  <div id="pmain"><button id="pback">Back to game</button><br><br><button id="pbinds">Change keybinds</button><br><br><button id="pmenu">Return to menu</button></div>
-  <div id="binds"></div></div>
+  <div id="pmain"><button id="pback">Back to game</button><br><br><button id="pbinds">Settings</button><br><br><button id="pmenu">Return to menu</button></div>
+  <div id="settings"><button id="sbinds">Change keybinds</button><button id="sfast"></button><button id="sback">Back</button></div>
+  <div id="binds"></div><div id="tip"></div></div>
 <div id="tablist"></div>
 <div id="chatlog"></div><input id="chatin" maxlength="120" placeholder="Type a message, Enter to send" autocomplete="off">
 <div id="mpinfo"></div>
@@ -414,7 +418,7 @@ in vec2 uv; out vec4 o;
 ${COMMON}
 uniform vec3 pos;
 uniform sampler2D fl;       // river flow direction
-uniform float time;
+uniform float time, fast;   // fast = 1: cheaper shading (no terrain shadows, flat water)
 uniform float yaw, pitch, aspect, tanH, pixAng, maxH;
 
 float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
@@ -549,8 +553,11 @@ void main(){
       vec2 adv = p.xz - flowAt(p.xz) * time * 1.8;
       float fadeW = 1.0 / (1.0 + t*0.03);
       float e2 = 0.12;
-      float w0 = ripple(adv), wx = ripple(adv + vec2(e2, 0.)), wz = ripple(adv + vec2(0., e2));
-      vec3 wn = normalize(vec3(-(wx - w0)/e2*0.5*fadeW, 1.0, -(wz - w0)/e2*0.5*fadeW));
+      vec3 wn = vec3(0., 1., 0.);
+      if(fast < 0.5){
+        float w0 = ripple(adv), wx = ripple(adv + vec2(e2, 0.)), wz = ripple(adv + vec2(0., e2));
+        wn = normalize(vec3(-(wx - w0)/e2*0.5*fadeW, 1.0, -(wz - w0)/e2*0.5*fadeW));
+      }
       float dkw = dayK();
       float fres = 0.04 + 0.96*pow(1.0 - max(dot(-d, wn), 0.0), 4.0);
       vec3 rd = reflect(d, wn); rd.y = abs(rd.y);
@@ -577,7 +584,7 @@ void main(){
 
     float dk = dayK();
     float sunL = max(dot(n, SUN), 0.) * dk;
-    if(sunL > 0.001){                       // terrain shadows: hills, valley walls and crater rims block the sun
+    if(sunL > 0.001 && fast < 0.5){         // terrain shadows: hills, valley walls and crater rims block the sun
       float shd = 1.0, st = 0.8;
       vec3 q0 = p + n*0.3;
       for(int i = 0; i < 40; i++){
@@ -828,7 +835,7 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 gl.activeTexture(gl.TEXTURE0);
 
 const U = n => gl.getUniformLocation(prog, n);
-const uFlash=U('flashF'), uCr=U('cracks'), uNC=U('nCracks'), uSun=U('SUN'), uTime=U('time');
+const uFast=U('fast'), uFlash=U('flashF'), uCr=U('cracks'), uNC=U('nCracks'), uSun=U('SUN'), uTime=U('time');
 const uPos=U('pos'), uYaw=U('yaw'), uPitch=U('pitch'), uAspect=U('aspect'),
       uTan=U('tanH'), uPix=U('pixAng'), uMax=U('maxH');
 gl.uniform1i(U('hm'), 0);
@@ -1166,9 +1173,30 @@ function toggleMenu(){
   if(menuOpen){ if(performance.now() - menuOpenedAt > 250) closeMenu(); }
   else openMenu();
 }
-function showMain(){ rebinding = null; bindsEl.style.display = 'none'; pmainEl.style.display = 'block'; }
+const settingsEl = document.getElementById('settings'), tipEl = document.getElementById('tip'), fastBtn = document.getElementById('sfast');
+let fastMode = false;
+try { fastMode = localStorage.getItem('ug-fast') === '1'; } catch(e){}
+function showMain(){ rebinding = null; bindsEl.style.display = 'none'; settingsEl.style.display = 'none'; pmainEl.style.display = 'block'; tipEl.style.display = 'none'; }
+function showSettings(){
+  rebinding = null; bindsEl.style.display = 'none'; pmainEl.style.display = 'none'; settingsEl.style.display = 'flex';
+  fastBtn.textContent = 'Fast mode: ' + (fastMode ? 'On' : 'Off');
+}
+fastBtn.onclick = () => {
+  fastMode = !fastMode;
+  try { localStorage.setItem('ug-fast', fastMode ? '1' : '0'); } catch(e){}
+  showSettings();
+};
+const FAST_TIP = 'Boosts frame rate on slower computers: turns off the 3D grass, terrain shadows and the animated water ripples. The world itself is unchanged.';
+fastBtn.addEventListener('mouseenter', () => {
+  tipEl.textContent = FAST_TIP; tipEl.style.display = 'block';
+  const r = fastBtn.getBoundingClientRect();
+  tipEl.style.left = Math.max(8, r.left + r.width/2 - 140) + 'px'; tipEl.style.top = (r.bottom + 8) + 'px';
+});
+fastBtn.addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
+document.getElementById('sbinds').onclick = showBinds;
+document.getElementById('sback').onclick = showMain;
 function showBinds(){
-  pmainEl.style.display = 'none'; bindsEl.style.display = 'flex'; bindsEl.innerHTML = '';
+  pmainEl.style.display = 'none'; settingsEl.style.display = 'none'; bindsEl.style.display = 'flex'; bindsEl.innerHTML = '';
   for(const a in BIND_LABELS){
     const row = document.createElement('div'); row.className = 'row';
     const b = document.createElement('button'); b.textContent = keyName(binds[a]);
@@ -1178,7 +1206,7 @@ function showBinds(){
   const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:10px;margin-top:8px';
   const reset = document.createElement('button'); reset.textContent = 'Reset'; reset.style.width = '110px';
   reset.onclick = () => { Object.assign(binds, BIND_DEFAULTS); saveBinds(); showBinds(); };
-  const back = document.createElement('button'); back.textContent = 'Back'; back.style.width = '110px'; back.onclick = showMain;
+  const back = document.createElement('button'); back.textContent = 'Back'; back.style.width = '110px'; back.onclick = showSettings;
   bar.append(reset, back); bindsEl.appendChild(bar);
 }
 function saveBinds(){ try { localStorage.setItem('ug-binds', JSON.stringify(binds)); } catch(e){} }
@@ -1192,7 +1220,7 @@ addEventListener('keydown', e => {                    // capture the next key wh
   rebinding = null; showBinds();
 }, true);
 document.getElementById('pback').onclick = closeMenu;
-document.getElementById('pbinds').onclick = showBinds;
+document.getElementById('pbinds').onclick = showSettings;
 document.getElementById('pmenu').onclick = () => { saveNow(); location.reload(); };   // fresh start screen, leaves any multiplayer room
 document.addEventListener('pointerlockchange', () => {
   if(document.pointerLockElement !== canvas && started && !dead && !menuOpen && !chatOpen && performance.now() > lockIgnore) openMenu();   // Esc releases the mouse: show the menu
@@ -1818,6 +1846,7 @@ function frame(now){
   if(!paused) animT += (now - (frame.prev || now))/1000;
   frame.prev = now;
   gl.uniform1f(uTime, animT);
+  gl.uniform1f(uFast, fastMode ? 1 : 0);
   const fwdX = sy*cp, fwdY = sp, fwdZ = -cyw*cp, fOn = flashOn ? 1 : 0;
   gl.uniform4f(uFlash, fwdX, fwdY, fwdZ, fOn);
   gl.uniform3f(uPos, cx, cy, cz);
@@ -1828,7 +1857,8 @@ function frame(now){
   gl.uniform1f(uPix, 2*TANH/canvas.height);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-  // pass 2: 3D grass blades
+  // pass 2: 3D grass blades (skipped in fast mode)
+  if(!fastMode){
   gl.useProgram(bprog);
   gl.bindVertexArray(emptyVAO);
   gl.depthFunc(gl.LEQUAL);
@@ -1844,6 +1874,7 @@ function frame(now){
   gl.uniform1f(bTime, animT);
   gl.uniform4f(bFlash, fwdX, fwdY, fwdZ, fOn);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 7, BLADE_G*BLADE_G);
+  }
 
   // pass 2b: monsters
   if(monsters.length || worldSwords.length){
