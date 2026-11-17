@@ -42,6 +42,34 @@
   #mp:hover:not(:disabled){background:rgba(0,0,0,.45)}
   #mp:disabled{opacity:.55;cursor:default}
   #mpmsg{font:500 13px system-ui,sans-serif;min-height:16px;max-width:360px;text-align:center}
+  #pause{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+         background:rgba(10,20,35,.35);font-family:system-ui,sans-serif;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.4);z-index:20}
+  #pause.show{display:flex}
+  #pause h2{margin:0 0 8px;font-size:34px;font-weight:700;min-height:41px}
+  #pause button{font:600 17px system-ui,sans-serif;width:230px;padding:11px 0;border:2px solid #fff;border-radius:6px;
+                background:rgba(0,0,0,.35);color:#fff;cursor:pointer}
+  #pause button:hover{background:rgba(0,0,0,.55)}
+  #binds{display:none;flex-direction:column;align-items:center;gap:8px}
+  #binds .row{display:flex;align-items:center;justify-content:space-between;width:290px;font:500 15px system-ui,sans-serif}
+  #binds .row button{width:130px;padding:6px 0;font-size:14px}
+  #binds .row button.wait{background:rgba(224,162,27,.7)}
+  #chatlog{position:fixed;left:12px;bottom:14px;width:min(420px,60vw);display:flex;flex-direction:column;gap:3px;
+           pointer-events:none;font:500 14px system-ui,sans-serif;color:#fff;z-index:15}
+  #chatlog div{padding:3px 8px;border-radius:4px;background:rgba(0,0,0,.45);text-shadow:0 1px 2px rgba(0,0,0,.8);
+               word-break:break-word;transition:opacity 1s;align-self:flex-start;max-width:100%}
+  #chatlog div.fade{opacity:0}
+  #chatlog b{font-weight:700;margin-right:6px}
+  #chatlog div.sys{color:#ffd84a;font-weight:600}
+  #tablist{position:fixed;left:50%;top:70px;transform:translateX(-50%);min-width:240px;max-width:90vw;display:none;z-index:18;
+           padding:10px 16px 12px;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font:500 15px system-ui,sans-serif;
+           text-shadow:0 1px 2px rgba(0,0,0,.8);pointer-events:none}
+  #tablist.show{display:block}
+  #tablist h4{margin:0 0 6px;font:600 12px system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;opacity:.8;text-align:center}
+  #tablist div{padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #chatin{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:min(560px,80vw);display:none;z-index:25;
+          font:500 15px system-ui,sans-serif;padding:9px 12px;border:2px solid #fff;border-radius:6px;
+          background:rgba(0,0,0,.6);color:#fff;outline:none}
+  #chatin.show{display:block}
   #mpinfo{position:fixed;left:12px;top:48px;font:600 11px system-ui,sans-serif;color:#fff;
           text-shadow:0 1px 2px rgba(0,0,0,.8);pointer-events:none;display:none}
   .ptag{position:fixed;transform:translate(-50%,-100%);font:600 11px system-ui,sans-serif;color:#fff;
@@ -57,9 +85,14 @@
 <div id="hp"><div id="hpfill"></div><span id="hptxt">100</span></div>
 <div id="wpn">Fist</div>
 <div id="prompt"><span id="ptxt"></span><div class="pb"><i id="pfill"></i></div></div>
-<div id="dead"><div>You were killed by Monster</div><button id="respawn">Respawn</button></div>
+<div id="dead"><div id="deadmsg"></div><button id="respawn">Respawn</button></div>
 <div id="start"><h1>Untitled Game</h1><button id="play">Play game</button>
-  <div class="mprow"><input id="mpcode" placeholder="room code" maxlength="24" value="main" autocomplete="off"><button id="mp" disabled>Multiplayer…</button></div><div id="mpmsg"></div></div>
+  <div class="mprow"><input id="mpcode" placeholder="username" maxlength="16" autocomplete="off" spellcheck="false"><button id="mp" disabled>Multiplayer…</button></div><div id="mpmsg"></div></div>
+<div id="pause"><h2 id="ptitle"></h2>
+  <div id="pmain"><button id="pback">Back to game</button><br><br><button id="pbinds">Change keybinds</button><br><br><button id="pmenu">Return to menu</button></div>
+  <div id="binds"></div></div>
+<div id="tablist"></div>
+<div id="chatlog"></div><input id="chatin" maxlength="120" placeholder="Type a message, Enter to send" autocomplete="off">
 <div id="mpinfo"></div>
 <script>
 // ============================================================================
@@ -148,22 +181,13 @@ function rocks(x, z){
   return best;
 }
 
-function terrainH(x, z){
+let lastWater = -1000, lastFx = 0, lastFz = 0;   // river water level (-1000 = none) and flow direction
+
+// smooth large-scale shape: broad swells, valleys, mountains
+function lowLevel(x, z){
   const dx = x - PERIOD*Math.round(x/PERIOD), dz = z - PERIOD*Math.round(z/PERIOD);
   const r = Math.hypot(dx, dz);
-
-  // broad swells, mid-size lumps and small bumps
-  let h = (fbm(x, z, 8, 3, 1) - 0.5)*22 + (fbm(x, z, 24, 2, 2) - 0.5)*7 + (fbm(x, z, 96, 2, 6) - 0.5)*1.6;
-
-  // hollows: round indents with sloping sides
-  h -= 4.5 * sstep(0.60, 0.78, pnoise(x, z, 20, 7)) * (0.6 + 0.4*pnoise(x, z, 64, 8));
-
-  // terraced ground: flat shelves joined by slanted risers, in some regions
-  const tmask = sstep(0.42, 0.62, fbm(x, z, 3, 2, 10));
-  const s = (fbm(x, z, 14, 2, 11) - 0.5) * 20;
-  const fl = Math.floor(s);
-  h += tmask * 1.3 * (fl + sstep(0.30, 0.70, s - fl));
-
+  const swell = (fbm(x, z, 8, 3, 1) - 0.5)*22;
   // mountains rise in a broken ring around the start; the start itself is meadow
   const ring  = sstep(80, 230, r);
   const clump = sstep(0.30, 0.50, fbm(x, z, 3, 2, 3));
@@ -174,34 +198,89 @@ function terrainH(x, z){
   const vd = Math.abs(fbm(x, z, 4, 3, 20) - 0.5);
   const vwarp = (pnoise(x, z, 24, 21) - 0.5) * 0.012;          // wobble the walls so they aren't uniform
   const valley = 1 - sstep(0.012, 0.075, vd + vwarp);
-  h = h - valley*11 + (mask*shape*120 + foot) * (1 - 0.9*valley);
+  return swell - valley*11 + (mask*shape*120 + foot) * (1 - 0.9*valley);
+}
 
-  // rock outcrops (kept off the spawn point)
-  lastRock = rocks(x, z) * sstep(8, 18, r);
+// mid-size lumps, small bumps, hollows and terraces
+function detail(x, z){
+  let h = (fbm(x, z, 24, 2, 2) - 0.5)*7 + (fbm(x, z, 96, 2, 6) - 0.5)*1.6;
+  // hollows: round indents with sloping sides
+  h -= 4.5 * sstep(0.60, 0.78, pnoise(x, z, 20, 7)) * (0.6 + 0.4*pnoise(x, z, 64, 8));
+  // terraced ground: flat shelves joined by slanted risers, in some regions
+  const tmask = sstep(0.42, 0.62, fbm(x, z, 3, 2, 10));
+  const s = (fbm(x, z, 14, 2, 11) - 0.5) * 20;
+  const fl = Math.floor(s);
+  return h + tmask * 1.3 * (fl + sstep(0.30, 0.70, s - fl));
+}
+
+const RV_CORE = 1.5, RV_EDGE = 7;     // metres from the river's centre line: full depth inside, dry bank beyond
+
+function terrainH(x, z){
+  const dx = x - PERIOD*Math.round(x/PERIOD), dz = z - PERIOD*Math.round(z/PERIOD);
+  const r = Math.hypot(dx, dz);
+  const low = lowLevel(x, z), base = low + detail(x, z);
+
+  // a river of fairly constant width runs along the centre line of every valley
+  let prof = 0, h = base, gx = 0, gz = 0;
+  lastWater = -1000; lastFx = 0; lastFz = 0;
+  const s0 = fbm(x, z, 4, 3, 20) - 0.5;
+  if(Math.abs(s0) < 0.06){
+    const e = 2;
+    gx = fbm(x + e, z, 4, 3, 20) - fbm(x - e, z, 4, 3, 20);
+    gz = fbm(x, z + e, 4, 3, 20) - fbm(x, z - e, 4, 3, 20);
+    const gl = Math.hypot(gx, gz) || 1e-6;
+    const dist = Math.abs(s0) / (gl/(2*e));                    // approximate distance to the centre line, metres
+    prof = 1 - sstep(RV_CORE, RV_EDGE, dist);
+    if(prof > 0){
+      const wl = low - 1.0;                                    // smooth water level that follows the valley floor
+      h = base + (wl - 2.4 - base) * prof;                     // carve the river bed
+      if(prof > 0.1){
+        lastWater = wl;
+        let tx = -gz/gl, tz = gx/gl;                           // along the channel
+        const dlow = lowLevel(x + tx*25, z + tz*25) - lowLevel(x - tx*25, z - tz*25);
+        if(Math.abs(dlow) > 0.15 ? dlow > 0 : tx < 0){ tx = -tx; tz = -tz; }   // flow downhill
+        lastFx = tx; lastFz = tz;
+      }
+    }
+  }
+
+  // rock outcrops (kept off the spawn point and out of the river)
+  lastRock = rocks(x, z) * sstep(8, 18, r) * (1 - sstep(0.03, 0.25, prof));
   return h + lastRock;
 }
 
-const heights = new Float32Array(N*N*2);   // [height, rock] per texel
+const heights = new Float32Array(N*N*4);   // [height, rock, water level, spare] per texel
+const flowDir = new Float32Array(N*N*2);   // river flow direction per texel
 let maxH = 0;
 for(let j = 0; j < N; j++){
   for(let i = 0; i < N; i++){
     const h = terrainH(i*CELL, j*CELL);
-    heights[(j*N + i)*2] = h;
-    heights[(j*N + i)*2 + 1] = lastRock;
+    const q = (j*N + i)*4;
+    heights[q] = h; heights[q+1] = lastRock; heights[q+2] = lastWater;
+    flowDir[(j*N + i)*2] = lastFx; flowDir[(j*N + i)*2 + 1] = lastFz;
     if(h > maxH) maxH = h;
   }
 }
 
-function heightAt(x, z){
+function bilerp(arr, stride, off, x, z){
   const fx = x / CELL, fz = z / CELL;
   const ix = Math.floor(fx), iz = Math.floor(fz);
   const ax = fx - ix, az = fz - iz;
   const i0 = ix & (N-1), i1 = (ix + 1) & (N-1);
   const j0 = iz & (N-1), j1 = (iz + 1) & (N-1);
-  const a = heights[(j0*N + i0)*2], b = heights[(j0*N + i1)*2];
-  const c = heights[(j1*N + i0)*2], d = heights[(j1*N + i1)*2];
+  const a = arr[(j0*N + i0)*stride + off], b = arr[(j0*N + i1)*stride + off];
+  const c = arr[(j1*N + i0)*stride + off], d = arr[(j1*N + i1)*stride + off];
   const t0 = a + (b - a)*ax, t1 = c + (d - c)*ax;
   return t0 + (t1 - t0)*az;
+}
+const heightAt = (x, z) => bilerp(heights, 4, 0, x, z);
+const waterLevelAt = (x, z) => bilerp(heights, 4, 2, x, z);          // -1000 = no river here
+const waterDepthAt = (x, z) => Math.max(0, waterLevelAt(x, z) - heightAt(x, z));
+const flowAt = (x, z) => [bilerp(flowDir, 2, 0, x, z), bilerp(flowDir, 2, 1, x, z)];
+// where you actually stand: the river bed, or just below the surface when the water is deep (you wade / float)
+function groundAt(x, z){
+  const h = heightAt(x, z), w = waterLevelAt(x, z);
+  return (w - h > 0.25) ? Math.max(h, w - 1.0) : h;
 }
 
 // ---- swords stabbed into the highest peaks ----
@@ -217,11 +296,11 @@ const worldSwords = [];
 (function placeSwords(){
   const W = 10, MINH = 45, cand = [];
   for(let j = 0; j < N; j++) for(let i = 0; i < N; i++){
-    const h = heights[(j*N + i)*2];
+    const h = heights[(j*N + i)*4];
     if(h < MINH) continue;
     let top = true;
     for(let dj = -W; dj <= W && top; dj++) for(let di = -W; di <= W; di++){
-      if(heights[((((j+dj) & (N-1))*N) + ((i+di) & (N-1)))*2] > h){ top = false; break; }
+      if(heights[((((j+dj) & (N-1))*N) + ((i+di) & (N-1)))*4] > h){ top = false; break; }
     }
     if(top) cand.push({x: i*CELL, z: j*CELL, h});
   }
@@ -278,6 +357,18 @@ float H(vec2 p){
   float d = texelFetch(hm, (i + ivec2(1,1)) & ivec2(NN-1), 0).r;
   return mix(mix(a,b,fr.x), mix(c,d,fr.x), fr.y);
 }
+// bed height and river surface height at this spot (surface is far below when there is no river)
+vec2 HW(vec2 p){
+  vec2 f = p * (float(NN) / PERIOD);
+  vec2 fl = floor(f), fr = f - fl;
+  ivec2 i = ivec2(fl) & ivec2(NN-1);
+  vec4 a = texelFetch(hm, i, 0);
+  vec4 b = texelFetch(hm, (i + ivec2(1,0)) & ivec2(NN-1), 0);
+  vec4 c = texelFetch(hm, (i + ivec2(0,1)) & ivec2(NN-1), 0);
+  vec4 d = texelFetch(hm, (i + ivec2(1,1)) & ivec2(NN-1), 0);
+  vec4 m = mix(mix(a,b,fr.x), mix(c,d,fr.x), fr.y);
+  return vec2(m.r, m.b);
+}
 // height of rock outcrop at this spot (0 = bare ground)
 float R(vec2 p){
   vec2 f = p * (float(NN) / PERIOD);
@@ -299,6 +390,8 @@ in vec2 uv; out vec4 o;
 
 ${COMMON}
 uniform vec3 pos;
+uniform sampler2D fl;       // river flow direction
+uniform float time;
 uniform float yaw, pitch, aspect, tanH, pixAng, maxH;
 
 float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
@@ -306,6 +399,18 @@ float vnoise(vec2 p){
   vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y);
 }
+
+vec2 flowAt(vec2 p){
+  vec2 f = p * (float(NN) / PERIOD);
+  vec2 fr = f - floor(f);
+  ivec2 i = ivec2(floor(f)) & ivec2(NN-1);
+  vec2 a = texelFetch(fl, i, 0).rg;
+  vec2 b = texelFetch(fl, (i + ivec2(1,0)) & ivec2(NN-1), 0).rg;
+  vec2 c = texelFetch(fl, (i + ivec2(0,1)) & ivec2(NN-1), 0).rg;
+  vec2 d = texelFetch(fl, (i + ivec2(1,1)) & ivec2(NN-1), 0).rg;
+  return mix(mix(a,b,fr.x), mix(c,d,fr.x), fr.y);
+}
+float ripple(vec2 q){ return vnoise(q*0.9)*0.65 + vnoise(q*2.2 + 7.3)*0.28 + vnoise(q*5.0 + 2.1)*0.07; }
 
 vec3 skyCol(vec3 d){
   float k = dayK();
@@ -382,7 +487,8 @@ void main(){
   bool hit = false;
   for(int i = 0; i < 280; i++){
     vec3 p = ro + d*t;
-    float hh = p.y - H(p.xz);
+    vec2 hw0 = HW(p.xz);
+    float hh = p.y - max(hw0.x, hw0.y);          // the ground, or the river surface above it
     if(hh < 0.0){ hit = true; break; }
     if(d.y > 0.0 && p.y > maxH) break;
     tp = t;
@@ -399,10 +505,13 @@ void main(){
     for(int i = 0; i < 7; i++){
       float mid = 0.5*(lo+hi);
       vec3 q = ro + d*mid;
-      if(q.y - H(q.xz) < 0.0) hi = mid; else lo = mid;
+      vec2 hq = HW(q.xz);
+      if(q.y - max(hq.x, hq.y) < 0.0) hi = mid; else lo = mid;
     }
     t = hi;
     vec3 p = ro + d*t;
+    vec2 hw = HW(p.xz);
+    bool isWater = hw.y > hw.x + 0.02;
     float e = CELL;
     vec3 n = normalize(vec3(H(p.xz - vec2(e,0.)) - H(p.xz + vec2(e,0.)), 2.*e,
                             H(p.xz - vec2(0.,e)) - H(p.xz + vec2(0.,e))));
@@ -411,6 +520,25 @@ void main(){
     float zv = dot(p - ro, F);
     gl_FragDepth = ((FAR+NEAR)/(FAR-NEAR) - 2.*FAR*NEAR/((FAR-NEAR)*zv))*0.5 + 0.5;
 
+    if(isWater){
+      // flowing river: ripples drift downstream, sky reflection, sparkle, shore foam
+      float depth = hw.y - hw.x;
+      vec2 adv = p.xz - flowAt(p.xz) * time * 1.8;
+      float fadeW = 1.0 / (1.0 + t*0.03);
+      float e2 = 0.12;
+      float w0 = ripple(adv), wx = ripple(adv + vec2(e2, 0.)), wz = ripple(adv + vec2(0., e2));
+      vec3 wn = normalize(vec3(-(wx - w0)/e2*0.5*fadeW, 1.0, -(wz - w0)/e2*0.5*fadeW));
+      float dkw = dayK();
+      float fres = 0.04 + 0.96*pow(1.0 - max(dot(-d, wn), 0.0), 4.0);
+      vec3 rd = reflect(d, wn); rd.y = abs(rd.y);
+      vec3 body = mix(vec3(0.10,0.40,0.44), vec3(0.01,0.08,0.18), smoothstep(0.1, 2.3, depth));
+      vec3 bed = vec3(0.30,0.27,0.19) * vec3(0.7,0.9,0.9);
+      body = mix(body, bed, exp(-depth*1.6)*0.6) * mix(0.12, 1.0, dkw);   // clear in the shallows
+      float spec = pow(max(dot(reflect(-SUN, wn), -d), 0.0), 180.0) * dkw * 2.5;
+      float foam = smoothstep(0.45, 0.0, depth) * (0.5 + 0.5*vnoise(adv*3.0));
+      col = mix(body, skyCol(rd), clamp(fres, 0., 1.)) + sunColor()*spec;
+      col = mix(col, vec3(0.92,0.96,0.98)*mix(0.25, 1.0, dkw), foam*0.85);
+    } else {
     float steep = 1.0 - n.y;
     float rk = max(max(smoothstep(0.10, 0.26, steep), smoothstep(45., 85., p.y)), smoothstep(0.03, 0.35, R(p.xz)));
     vec3 alb = mix(grass(p.xz, w), rock(p, w), rk);
@@ -440,6 +568,7 @@ void main(){
     }
     vec3 amb = vec3(0.50,0.62,0.85) * (0.30 + 0.25*n.y) * mix(0.16, 1.0, dk);
     col = alb * (amb + sunColor()*sunL*0.95);
+    }
 
     float fog = 1.0 - exp(-t*0.0014);
     vec3 haze = horizonCol() + sunColor()*pow(max(dot(d,SUN),0.),8.)*0.15*dayK();
@@ -483,6 +612,8 @@ void main(){
                           H(xz - vec2(0.,e)) - H(xz + vec2(0.,e))));
   float rk = max(max(smoothstep(0.10, 0.26, 1.0 - n.y), smoothstep(45., 85., y0)), smoothstep(0.03, 0.35, R(xz)));
   lod *= 1.0 - smoothstep(0.3, 0.9, rk);
+  vec2 hwB = HW(xz);
+  lod *= smoothstep(0.1, 0.5, hwB.x - hwB.y);     // no grass in or beside the river
   lod *= smoothstep(0.04, 0.16, h3);          // a few bare patches
   for(int c = 0; c < 8; c++){
     if(c >= nCracks) break;
@@ -658,15 +789,25 @@ const tex = gl.createTexture();
 gl.activeTexture(gl.TEXTURE0);
 gl.bindTexture(gl.TEXTURE_2D, tex);
 gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, N, N, 0, gl.RG, gl.FLOAT, heights);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, N, N, 0, gl.RGBA, gl.FLOAT, heights);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
+// river flow directions on texture unit 1
+const flowTex = gl.createTexture();
+gl.activeTexture(gl.TEXTURE1);
+gl.bindTexture(gl.TEXTURE_2D, flowTex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, N, N, 0, gl.RG, gl.FLOAT, flowDir);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.activeTexture(gl.TEXTURE0);
+
 const U = n => gl.getUniformLocation(prog, n);
-const uCr=U('cracks'), uNC=U('nCracks'), uSun=U('SUN');
+const uCr=U('cracks'), uNC=U('nCracks'), uSun=U('SUN'), uTime=U('time');
 const uPos=U('pos'), uYaw=U('yaw'), uPitch=U('pitch'), uAspect=U('aspect'),
       uTan=U('tanH'), uPix=U('pixAng'), uMax=U('maxH');
 gl.uniform1i(U('hm'), 0);
+gl.uniform1i(U('fl'), 1);
 gl.uniform1f(uMax, maxH + 1);
 
 const FOV = 75 * Math.PI/180, TANH = Math.tan(FOV/2);
@@ -684,12 +825,30 @@ addEventListener('resize', resize); resize();
 // Player
 // ---------------------------------------------------------------------------
 const EYE = 1.7, WALK = 4, SPRINT = 8;
+const FALL_SAFE = 3.2, FALL_DMG = 7;        // metres you can drop unhurt; damage per extra metre
 const GRAVITY = 22, JUMP = 8, MAX_SLOPE = 1.3; // 1.3 ≈ 52° — steeper is a cliff
-const player = {x:0, z:0, yaw:0, pitch:0, y:heightAt(0,0), vy:0, grounded:true};
+const player = {x:0, z:0, yaw:0, pitch:0, y:heightAt(0,0), vy:0, grounded:true, airPeak:heightAt(0,0)};
 const keys = {};
+const BIND_DEFAULTS = {forward:'KeyW', back:'KeyS', left:'KeyA', right:'KeyD', jump:'Space', sprint:'ShiftLeft', pickup:'KeyE', chat:'KeyT'};
+const BIND_LABELS = {forward:'Forward', back:'Backward', left:'Left', right:'Right', jump:'Jump', sprint:'Sprint', pickup:'Pick up (hold)', chat:'Chat'};
+const binds = Object.assign({}, BIND_DEFAULTS);
+try { Object.assign(binds, JSON.parse(localStorage.getItem('ug-binds') || '{}')); } catch(e){}
+function down(a){ const c = binds[a]; return !!(keys[c] || (c === 'ShiftLeft' && keys.ShiftRight)); }
+function keyName(c){
+  return c.replace(/^Key/, '').replace(/^Digit/, '').replace('Left',' L').replace('Right',' R').replace('Arrow','Arrow ')
+          .replace('Space','Space').replace('Control','Ctrl');
+}
+let paused = false, menuOpen = false, menuOpenedAt = 0;      // paused freezes the game in singleplayer only
 addEventListener('keydown', e => {
-  if(dead || !started) return;
-  if(e.code === 'Space') e.preventDefault();
+  if(e.code === 'Escape'){
+    if(chatOpen){ closeChat(); return; }
+    if(started && !dead && !rebinding) toggleMenu();
+    return;
+  }
+  if(chatOpen) return;
+  if(dead || !started || menuOpen) return;
+  if(e.code === binds.chat){ e.preventDefault(); openChat(); return; }
+  if(e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   keys[e.code] = true;
 });
 addEventListener('keyup',   e => { keys[e.code] = false; });
@@ -709,7 +868,7 @@ addEventListener('mousemove', e => {
 
 function canMove(nx, nz){
   const dist = Math.hypot(nx - player.x, nz - player.z);
-  return heightAt(nx, nz) - player.y <= Math.max(0.03, dist*MAX_SLOPE);
+  return groundAt(nx, nz) - player.y <= Math.max(0.03, dist*MAX_SLOPE);
 }
 
 // ---- punching: each hit digs the terrain; rocks are worn away first ----
@@ -748,13 +907,13 @@ function breakArea(cx, cz){
     if(dn >= 1) continue;
     const c = Math.cos(Math.PI*0.5*dn);
     const amt = BREAK_DEPTH * Math.pow(c, 1.3) * (0.85 + 0.3*hash2(i & 1023, j & 1023));
-    const k = (((j & (N-1))*N) + (i & (N-1))) * 2;
+    const k = (((j & (N-1))*N) + (i & (N-1))) * 4;
     heights[k+1] = Math.max(0, heights[k+1] - amt*1.5);   // rocks shatter faster than soil
     heights[k]   = Math.max(MIN_H, heights[k] - amt);
   }
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, N, gl.RG, gl.FLOAT, heights);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, N, gl.RGBA, gl.FLOAT, heights);
 }
 
 function doPunch(){
@@ -837,15 +996,25 @@ function keyf(k, t){
 }
 const ATTACK_KEYS = [[0,0],[0.3,0.9],[0.45,-1.6],[1,0]];
 
+const DEATH_MESSAGES = [
+  "Your blood turned to vinegar",
+  "You forgot how to breathe",
+  "You discovered death",
+  "You Dieded",
+  "Maybe don't die instead next time?",
+  "Kaboom",
+];
 function die(){
+  document.getElementById('deadmsg').textContent = DEATH_MESSAGES[Math.floor(Math.random()*DEATH_MESSAGES.length)];
   dead = true; holding = false;
+  if(chatOpen) closeChat();
   for(const k in keys) keys[k] = false;
   deadEl.classList.add('show');
   if(document.pointerLockElement) document.exitPointerLock();
 }
 function respawn(){
   hp.v = MAX_HP; hp.last = -1e9;
-  player.x = 0; player.z = 0; player.y = heightAt(0,0); player.vy = 0; player.grounded = true;
+  player.x = 0; player.z = 0; player.y = heightAt(0,0); player.vy = 0; player.grounded = true; player.airPeak = player.y;
   while(monsters.length) removeMonster(0);
   nextSpawn = 20;
   punch.t = 1; punch.hit = true;
@@ -854,7 +1023,134 @@ function respawn(){
   canvas.requestPointerLock();
 }
 document.getElementById('respawn').addEventListener('click', respawn);
+
+// ---- username & chat ----
+const nameEl = document.getElementById('mpcode');
+try { nameEl.value = localStorage.getItem('ug-name') || ''; } catch(e){}
+let myName = 'Player ' + (1000 + Math.floor(Math.random()*9000));
+function applyName(){
+  const v = nameEl.value.replace(/\s+/g, ' ').trim().slice(0, 16);
+  if(v) myName = v;
+  try { localStorage.setItem('ug-name', v); } catch(e){}
+}
+const chatLog = document.getElementById('chatlog'), chatIn = document.getElementById('chatin');
+let lockIgnore = 0;                                        // lock changes caused by opening/closing chat are not Esc
+let chatOpen = false, chatId = 0, chatCur = '', chatClear = 0, lastChat = 0;
+function addChat(name, text, sys){
+  const d = document.createElement('div');
+  if(sys){ d.className = 'sys'; d.textContent = text; }
+  else {
+    const b = document.createElement('b'); b.textContent = name + ':';
+    d.append(b, document.createTextNode(text));
+  }
+  chatLog.appendChild(d);
+  while(chatLog.children.length > 8) chatLog.firstChild.remove();
+  setTimeout(() => d.classList.add('fade'), 10000);          // visible for 10 s, then fades out
+  setTimeout(() => d.remove(), 11200);
+}
+function openChat(){
+  chatOpen = true; holding = false; for(const k in keys) keys[k] = false;
+  lockIgnore = performance.now() + 500;
+  chatIn.value = ''; chatIn.classList.add('show');
+  if(document.pointerLockElement) document.exitPointerLock();
+  setTimeout(() => chatIn.focus(), 0);
+}
+function closeChat(){
+  chatOpen = false; lockIgnore = performance.now() + 500; chatIn.classList.remove('show'); chatIn.blur();
+  if(started && !dead && !menuOpen) canvas.requestPointerLock();
+}
+chatIn.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if(e.code === 'Escape'){ closeChat(); return; }
+  if(e.code !== 'Enter' && e.code !== 'NumpadEnter') return;
+  const text = chatIn.value.trim().slice(0, 120);
+  const t = performance.now();
+  if(text && t - lastChat > 400){
+    lastChat = t;
+    addChat(myName, text);
+    chatCur = text; chatId++; chatClear = t + 4000;           // shared through presence for a few seconds
+  }
+  closeChat();
+});
+
+// ---- player list (hold Tab) ----
+const tabEl = document.getElementById('tablist');
+let tabHeld = false, tabKey = '';
+function refreshTab(){
+  if(!tabHeld) return;
+  const names = [myName + ' (you)'];
+  if(mpRoom) for(const r of remote.values()) names.push(r.n);
+  const key = names.join('\n');
+  if(key === tabKey) return;
+  tabKey = key; tabEl.innerHTML = '';
+  const h = document.createElement('h4'); h.textContent = 'Online · ' + names.length; tabEl.appendChild(h);
+  for(const n of names){ const d = document.createElement('div'); d.textContent = n; tabEl.appendChild(d); }
+}
+function setTab(on){
+  tabHeld = on && started && !dead && !menuOpen && !chatOpen;
+  tabEl.classList.toggle('show', tabHeld); tabKey = '';
+  refreshTab();
+}
+addEventListener('keydown', e => { if(e.code === 'Tab' && started){ e.preventDefault(); if(!e.repeat) setTab(true); } });
+addEventListener('keyup', e => { if(e.code === 'Tab') setTab(false); });
+addEventListener('blur', () => setTab(false));
+
+// ---- pause menu ----
+const pauseEl = document.getElementById('pause'), bindsEl = document.getElementById('binds'), pmainEl = document.getElementById('pmain');
+let rebinding = null;
+function openMenu(){
+  if(menuOpen) return;
+  if(chatOpen) closeChat();
+  menuOpen = true; menuOpenedAt = performance.now();
+  paused = !mpRoom;                                   // multiplayer keeps running behind the menu
+  holding = false; for(const k in keys) keys[k] = false;
+  document.getElementById('ptitle').textContent = paused ? 'Game Paused' : '';
+  showMain();
+  pauseEl.classList.add('show');
+  if(document.pointerLockElement) document.exitPointerLock();
+}
+function closeMenu(){
+  menuOpen = false; paused = false; rebinding = null;
+  pauseEl.classList.remove('show');
+  canvas.requestPointerLock();
+}
+function toggleMenu(){
+  if(menuOpen){ if(performance.now() - menuOpenedAt > 250) closeMenu(); }
+  else openMenu();
+}
+function showMain(){ rebinding = null; bindsEl.style.display = 'none'; pmainEl.style.display = 'block'; }
+function showBinds(){
+  pmainEl.style.display = 'none'; bindsEl.style.display = 'flex'; bindsEl.innerHTML = '';
+  for(const a in BIND_LABELS){
+    const row = document.createElement('div'); row.className = 'row';
+    const b = document.createElement('button'); b.textContent = keyName(binds[a]);
+    b.onclick = () => { rebinding = a; for(const x of bindsEl.querySelectorAll('.row button')) x.classList.remove('wait'); b.classList.add('wait'); b.textContent = 'press a key…'; };
+    row.innerHTML = '<span>' + BIND_LABELS[a] + '</span>'; row.appendChild(b); bindsEl.appendChild(row);
+  }
+  const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:10px;margin-top:8px';
+  const reset = document.createElement('button'); reset.textContent = 'Reset'; reset.style.width = '110px';
+  reset.onclick = () => { Object.assign(binds, BIND_DEFAULTS); saveBinds(); showBinds(); };
+  const back = document.createElement('button'); back.textContent = 'Back'; back.style.width = '110px'; back.onclick = showMain;
+  bar.append(reset, back); bindsEl.appendChild(bar);
+}
+function saveBinds(){ try { localStorage.setItem('ug-binds', JSON.stringify(binds)); } catch(e){} }
+addEventListener('keydown', e => {                    // capture the next key while rebinding
+  if(!rebinding) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if(e.code !== 'Escape'){
+    for(const a in binds) if(binds[a] === e.code && a !== rebinding) binds[a] = binds[rebinding];   // swap if already used
+    binds[rebinding] = e.code; saveBinds();
+  }
+  rebinding = null; showBinds();
+}, true);
+document.getElementById('pback').onclick = closeMenu;
+document.getElementById('pbinds').onclick = showBinds;
+document.getElementById('pmenu').onclick = () => location.reload();   // fresh start screen, leaves any multiplayer room
+document.addEventListener('pointerlockchange', () => {
+  if(document.pointerLockElement !== canvas && started && !dead && !menuOpen && !chatOpen && performance.now() > lockIgnore) openMenu();   // Esc releases the mouse: show the menu
+});
 function startGame(){
+  applyName();
   started = true;
   document.getElementById('start').style.display = 'none';
   canvas.requestPointerLock();
@@ -907,7 +1203,7 @@ function updateMonsters(dt){
         if(m.cool <= 0){ m.atk = 0; m.hit = false; }
       }
     }
-    m.y = heightAt(m.x, m.z);
+    m.y = groundAt(m.x, m.z);
   }
   // slow passive healing once 30 s have passed without taking damage
   if(gameT - hp.last > REGEN_DELAY && hp.v < MAX_HP) hp.v = Math.min(MAX_HP, hp.v + REGEN_RATE*dt);
@@ -1039,7 +1335,7 @@ function updatePickup(dt){
     if(d < bd && Math.abs(heightAt(w.x, w.z) - player.y) < 3.5){ bd = d; best = w; }
   }
   if(best !== pickTarget){ pickTarget = best; pickProg = 0; }
-  if(pickTarget && keys.KeyE){
+  if(pickTarget && down('pickup')){
     pickProg += dt / PICK_TIME;
     if(pickProg >= 1){
       const w = pickTarget;
@@ -1064,8 +1360,7 @@ function updatePickup(dt){
 // Digging, monsters and sword pickups stay local to each player.
 let mpRoom = null, mpCode = '';
 const remote = new Map();            // peer id -> smoothed avatar state
-const myName = 'Player ' + (1000 + Math.floor(Math.random()*9000));
-let lastSend = 0, lastMP = performance.now();
+let lastSend = 0, lastMP = performance.now(), mpStart = 0;
 const mpInfo = document.getElementById('mpinfo');
 
 // ---- WebRTC transport: Firebase Realtime Database for signalling, STUN/TURN for connecting ----
@@ -1183,10 +1478,12 @@ async function connectWebRTC(code){
   const wire = join => {
     btn.disabled = false; btn.textContent = 'Multiplayer';
     btn.addEventListener('click', async () => {
-      const code = (document.getElementById('mpcode').value || 'main').toLowerCase().replace(/[^a-z0-9_.-]/g, '').slice(0, 24) || 'main';
+      applyName();
+      const code = 'main';
       btn.disabled = true; btn.textContent = 'Joining…'; msg.textContent = '';
       try {
         mpRoom = await join(code);
+        mpStart = performance.now();
         mpCode = code;
         mpInfo.style.display = 'block';
         startGame();
@@ -1219,11 +1516,12 @@ function updateMP(){
   if(!mpRoom) return;
   const nowMs = performance.now();
   const rdt = Math.min((nowMs - lastMP)/1000, 0.1); lastMP = nowMs;
+  if(chatCur && nowMs > chatClear) chatCur = '';
   if(nowMs - lastSend > 66){                       // ~15 updates a second
     lastSend = nowMs;
     const r2 = v => Math.round(v*100)/100;
     mpRoom.presence({x: r2(player.x), y: r2(player.y), z: r2(player.z), yaw: r2(player.yaw),
-                     pt: punch.t >= 1 ? 1 : r2(punch.t), w: weapon || '', n: myName, dd: dead ? 1 : 0}).catch(() => {});
+                     pt: punch.t >= 1 ? 1 : r2(punch.t), w: weapon || '', n: myName, dd: dead ? 1 : 0, c: chatCur, ci: chatId}).catch(() => {});
   }
   const seen = new Set(), f = 1 - Math.exp(-rdt*12);
   for(const p of mpRoom.peers()){
@@ -1232,7 +1530,7 @@ function updateMP(){
     if(!s || typeof s.x !== 'number' || typeof s.z !== 'number') continue;
     seen.add(p.peer);
     let r = remote.get(p.peer);
-    if(!r){ r = {x: s.x, y: s.y, z: s.z, yaw: s.yaw || 0, phase: 0, moving: false, col: hueRGB(p.peer), tag: null}; remote.set(p.peer, r); }
+    if(!r){ r = {x: s.x, y: s.y, z: s.z, yaw: s.yaw || 0, phase: 0, moving: false, col: hueRGB(p.peer), tag: null, ci: s.ci, announced: false}; remote.set(p.peer, r); }
     const dx = s.x - r.x, dz = s.z - r.z;
     r.moving = Math.hypot(dx, dz) > 0.04;
     if(r.moving) r.phase += rdt*9;
@@ -1243,9 +1541,11 @@ function updateMP(){
     r.w = typeof s.w === 'string' ? s.w : '';
     r.n = typeof s.n === 'string' ? s.n.slice(0, 20) : 'Player';
     r.dd = !!s.dd;
+    if(!r.announced){ r.announced = true; if(nowMs - mpStart > 4000) addChat('', r.n + ' joined the game', true); }   // not for players already there when we arrive
+    if(s.ci !== r.ci){ r.ci = s.ci; if(typeof s.c === 'string' && s.c) addChat(r.n, s.c.slice(0, 120)); }
   }
   for(const [k, r] of remote) if(!seen.has(k)){ if(r.tag) r.tag.remove(); remote.delete(k); }
-  mpInfo.textContent = 'Multiplayer · room ' + mpCode + ' · ' + (remote.size + 1) + ' player' + (remote.size ? 's' : '');
+  mpInfo.textContent = 'Multiplayer · ' + (remote.size + 1) + ' player' + (remote.size ? 's' : '');
 }
 
 const MSP = 0.78;   // avatar scale
@@ -1286,7 +1586,7 @@ function updateTags(cx, cy, cz, cR_, cU_, cF_, aspect){
     if(show){
       const rx = r.x - cx, ry = r.y + 2.7*MSP - cy, rz = r.z - cz;
       const zv = rx*cF_[0] + ry*cF_[1] + rz*cF_[2];
-      if(zv < 0.3 || zv > 120) show = false;
+      if(zv < 0.3 || Math.hypot(rx, ry, rz) > 30) show = false;       // names appear when players are close
       else {
         const xv = rx*cR_[0] + ry*cR_[1] + rz*cR_[2], yv = rx*cU_[0] + ry*cU_[1] + rz*cU_[2];
         sx = (xv/(zv*TANH*aspect)*0.5 + 0.5) * innerWidth;
@@ -1306,15 +1606,24 @@ function updateTags(cx, cy, cz, cR_, cU_, cF_, aspect){
   }
 }
 
-let last = performance.now();
+let last = performance.now(), animT = 0;
 function frame(now){
-  const dt = (dead || !started) ? 0 : Math.min((now - last)/1000, 0.1); last = now;
+  refreshTab();
+  const dt = (dead || !started || paused) ? 0 : Math.min((now - last)/1000, 0.1); last = now;
 
-  let fx = (keys.KeyW?1:0) - (keys.KeyS?1:0);
-  let rx = (keys.KeyD?1:0) - (keys.KeyA?1:0);
+  let fx = (down('forward')?1:0) - (down('back')?1:0);
+  let rx = (down('right')?1:0) - (down('left')?1:0);
   const len = Math.hypot(fx, rx);
+  // rivers: wading slows you down and the current carries you downstream
+  const wdepth = waterDepthAt(player.x, player.z);
+  const waterSlow = wdepth > 1.0 ? 0.45 : wdepth > 0.25 ? 0.7 : 1;
+  if(wdepth > 0.1){
+    const fw = flowAt(player.x, player.z), push = 1.4 * Math.min(wdepth, 1.2) * dt;
+    const px = player.x + fw[0]*push, pz = player.z + fw[1]*push;
+    if(canMove(px, pz)){ player.x = px; player.z = pz; }
+  }
   if(len){
-    const speed = (keys.ShiftLeft || keys.ShiftRight) ? SPRINT : WALK;
+    const speed = (down('sprint') ? SPRINT : WALK) * waterSlow;
     fx/=len; rx/=len;
     const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
     const nx = player.x + ( s*fx + c*rx) * speed * dt;
@@ -1336,13 +1645,23 @@ function frame(now){
   updateMP();
 
   let jumping = false;
-  if(keys.Space && player.grounded){ player.vy = JUMP; player.grounded = false; jumping = true; }
+  if(down('jump') && player.grounded){ player.vy = JUMP; player.grounded = false; jumping = true; player.airPeak = player.y; }
   player.vy -= GRAVITY * dt;
   player.y += player.vy * dt;
-  const ground = heightAt(player.x, player.z);
-  if(player.y <= ground){ player.y = ground; player.vy = 0; player.grounded = true; }
+  const ground = groundAt(player.x, player.z);
+  if(player.y <= ground){
+    if(!player.grounded){                       // just landed: hurt by long falls, unless it was into deep water
+      const fall = player.airPeak - ground;
+      if(fall > FALL_SAFE && waterDepthAt(player.x, player.z) < 0.5) hurt(Math.round((fall - FALL_SAFE) * FALL_DMG));
+    }
+    player.y = ground; player.vy = 0; player.grounded = true;
+  }
   else if(!jumping && player.grounded && player.y - ground < 0.4){ player.y = ground; player.vy = 0; }
-  else player.grounded = false;
+  else {
+    if(player.grounded) player.airPeak = player.y;     // stepped off a ledge: start measuring the fall
+    player.grounded = false;
+    if(player.y > player.airPeak) player.airPeak = player.y;
+  }
 
   const cx = player.x, cy = player.y + EYE, cz = player.z;
   const sy = Math.sin(player.yaw), cyw = Math.cos(player.yaw);
@@ -1363,6 +1682,9 @@ function frame(now){
   gl.uniform3f(uSun, sun[0], sun[1], sun[2]);
   gl.uniform3fv(uCr, crackData);
   gl.uniform1i(uNC, cracks.length);
+  if(!paused) animT += (now - (frame.prev || now))/1000;
+  frame.prev = now;
+  gl.uniform1f(uTime, animT);
   gl.uniform3f(uPos, cx, cy, cz);
   gl.uniform1f(uYaw, player.yaw);
   gl.uniform1f(uPitch, player.pitch);
@@ -1384,7 +1706,7 @@ function frame(now){
   gl.uniform3f(bF,  sy*cp, sp, -cyw*cp);
   gl.uniform1f(bTan, TANH);
   gl.uniform1f(bAsp, aspect);
-  gl.uniform1f(bTime, now/1000);
+  gl.uniform1f(bTime, animT);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 7, BLADE_G*BLADE_G);
 
   // pass 2b: monsters
