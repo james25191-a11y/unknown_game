@@ -97,6 +97,11 @@
   .mbar{position:fixed;width:56px;height:6px;margin:-3px 0 0 -28px;background:rgba(0,0,0,.55);
         border-radius:2px;overflow:hidden;pointer-events:none;display:none}
   .mbar i{display:block;height:100%;width:100%;background:#d33}
+  #talk{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);width:min(560px,86vw);background:rgba(12,10,22,.82);color:#fff;border:1px solid rgba(255,255,255,.3);
+        border-radius:8px;padding:12px 16px;font:15px/1.4 system-ui,sans-serif;display:none;pointer-events:none}
+  #tname{display:block;font-weight:700;color:#ffd666;margin-bottom:4px}
+  #thint{display:block;margin-top:6px;font-size:11px;opacity:.65;text-align:right}
+  #quest{position:fixed;right:14px;top:14px;max-width:260px;text-align:right;font:600 12px system-ui,sans-serif;color:#ffe08a;text-shadow:0 1px 3px rgba(0,0,0,.9);pointer-events:none;display:none}
 </style>
 </head>
 <body>
@@ -114,6 +119,8 @@
   <div id="pmain"><button id="pback">Back to game</button><br><br><button id="pbinds">Settings</button><br><br><button id="pmenu">Return to menu</button></div>
   <div id="settings"><button id="sbinds">Change keybinds</button><button id="sfast"></button><button id="sback">Back</button></div>
   <div id="binds"></div><div id="tip"></div></div>
+<div id="talk"><b id="tname"></b><span id="ttext"></span><span id="thint"></span></div>
+<div id="quest"></div>
 <div id="boss"><div class="nm">Dragon of Light</div><div class="tr"><i id="bossfill"></i></div></div>
 <div id="tablist"></div>
 <div id="chatlog"></div><input id="chatin" maxlength="120" placeholder="Type a message, Enter to send" autocomplete="off">
@@ -327,7 +334,7 @@ const VILLAGE = (function(){
   const WALL = {plaster: [0.83,0.77,0.62], stone: [0.60,0.59,0.57], timber: [0.58,0.42,0.28], white: [0.88,0.86,0.80], brick: [0.66,0.38,0.30]};
   const ROOF = {clay: [0.62,0.27,0.18], slate: [0.30,0.33,0.40], thatch: [0.72,0.60,0.32], brown: [0.40,0.26,0.17]};
   const WOOD = [0.45,0.31,0.19], DARK = [0.20,0.19,0.20], GLASS = [0.13,0.18,0.26], FRAME = [0.92,0.9,0.85];
-  const buildings = [], lamps = [], paths = [], colliders = [], smoke = [];
+  const doors = [], buildings = [], lamps = [], paths = [], colliders = [], smoke = [];
   const addRect = (cx, cz, hx, hz) => paths.push(cx, cz, hx, hz);
   function box(list, o, sz, col, extra){ list.push(Object.assign({o, s: sz, c: col}, extra || {})); }
   function make(cx, cz, w, d, yaw, kind, wallK, roofK){
@@ -432,6 +439,7 @@ const VILLAGE = (function(){
     const st = Math.abs(r.out[0]) > 0.5 ? [0, sp[1]] : [sp[0], 0];                         // nearest point on the street
     const a = r.door, hw = 0.95, dx = Math.abs(st[0] - a[0]), dz = Math.abs(st[1] - a[1]);
     addRect((a[0] + st[0])/2, (a[1] + st[1])/2, dx/2 + (dx < 1e-3 ? hw : 0), dz/2 + (dz < 1e-3 ? hw : 0));
+    doors.push({b: buildings.length - 1, door: a, st, inside: [a[0] - r.out[0]*2.8, a[1] - r.out[1]*2.8]});
   }
   // lamp posts along the streets and round the plaza
   const lampAt = (x, z) => { lamps.push([x, z]); colliders.push([x - 0.2, z - 0.2, x + 0.2, z + 0.2]); };
@@ -442,7 +450,7 @@ const VILLAGE = (function(){
   const well = {x: -3.6, z: -3.6};
   colliders.push([well.x - 1.2, well.z - 1.2, well.x + 1.2, well.z + 1.2]);
   const arr = new Float32Array(48*4); arr.set(paths.slice(0, 48*4));
-  return {buildings, lamps, paths: arr, colliders, well, nPaths: paths.length/4};
+  return {buildings, doors, lamps, paths: arr, colliders, well, nPaths: paths.length/4};
 })();
 function villageBlocked(x, z, r){
   if(x*x + z*z > 3600) return false;
@@ -1044,7 +1052,7 @@ const GRAVITY = 22, JUMP = 8, MAX_SLOPE = 1.3; // 1.3 ≈ 52° — steeper is a 
 const player = {x:0, z:0, yaw:0, pitch:0, y:heightAt(0,0), vy:0, grounded:true, airPeak:heightAt(0,0)};
 const keys = {};
 const BIND_DEFAULTS = {forward:'KeyW', back:'KeyS', left:'KeyA', right:'KeyD', jump:'Space', sprint:'ShiftLeft', pickup:'KeyE', chat:'KeyT', flash:'KeyF'};
-const BIND_LABELS = {forward:'Forward', back:'Backward', left:'Left', right:'Right', jump:'Jump', sprint:'Sprint', pickup:'Pick up (hold)', chat:'Chat', flash:'Flashlight'};
+const BIND_LABELS = {forward:'Forward', back:'Backward', left:'Left', right:'Right', jump:'Jump', sprint:'Sprint', pickup:'Pick up (hold) / Talk', chat:'Chat', flash:'Flashlight'};
 const binds = Object.assign({}, BIND_DEFAULTS);
 try { Object.assign(binds, JSON.parse(localStorage.getItem('ug-binds') || '{}')); } catch(e){}
 function down(a){ const c = binds[a]; return !!(keys[c] || (c === 'ShiftLeft' && keys.ShiftRight)); }
@@ -1064,6 +1072,7 @@ addEventListener('keydown', e => {
   if(dead || !started || menuOpen) return;
   if(e.code === binds.chat){ e.preventDefault(); openChat(); return; }
   if(e.code === binds.flash){ if(!e.repeat) flashOn = !flashOn; return; }
+  if(e.code === binds.pickup && !e.repeat && talkKey()) return;
   if(e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   keys[e.code] = true;
 });
@@ -1152,6 +1161,10 @@ function doPunch(){
     for(const f of fireballs){                                        // punch a fireball back at the dragon
       if(!f.deflected && Math.hypot(x - f.x, y - f.y, z - f.z) < 1.8){ deflectFireball(f); return; }
     }
+    for(const v of villagers){
+      if(v.role === 'child') continue;
+      if(Math.hypot(x - v.x, z - v.z) < 0.6*v.scale && y > v.y - 0.1 && y < v.y + 2.3*v.scale){ hitVillager(v); return; }
+    }
     for(const m of monsters){
       if(Math.hypot(x - m.x, z - m.z) < 0.8*MS && y > m.y - 0.1 && y < m.y + 2.5*MS){
         hitMonster(m); return;
@@ -1226,7 +1239,7 @@ function hitMonster(m){
   const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz) || 1;
   m.x += dx/d*0.5; m.z += dz/d*0.5;
   if(m.atk >= 0){ m.atk = -1; m.cool = 0.7; }
-  if(m.hp <= 0) removeMonster(monsters.indexOf(m));
+  if(m.hp <= 0){ removeMonster(monsters.indexOf(m)); monsterKills++; }
 }
 
 function keyf(k, t){
@@ -1421,6 +1434,7 @@ function snapshot(){
   const r = (v, k = 100) => Math.round(v*k)/k;
   return {
     x: r(player.x), y: r(player.y), z: r(player.z), yaw: r(player.yaw, 1000), pitch: r(player.pitch, 1000),
+    q: {i: quest.i, s: quest.state, b: quest.base, k: monsterKills},
     ver: 2, hp: Math.round(hp.v), weapon: weapon || '', gameT: r(gameT, 10), dh: dragon.dead ? 0 : Math.round(dragon.hp),
     digs: digLog, cracks: cracks.map(k => [r(k.x), r(k.z), r(k.seed)]),
     swords: worldSwords.map(w => [r(w.x), r(w.z), w.type, r(w.yaw), r(w.lean)]),
@@ -1443,6 +1457,8 @@ function applySave(st){
     worldSwords.length = 0;
     for(const w of st.swords) if(SWORD_TYPES[w[2]]) worldSwords.push({x: w[0], z: w[1], type: w[2], yaw: w[3], lean: w[4]});
   }
+  resetQuests();
+  if(st.q){ quest.i = st.q.i | 0; quest.state = st.q.s === 'active' || st.q.s === 'ready' ? st.q.s : 'none'; quest.base = st.q.b | 0; monsterKills = st.q.k | 0; updateQuestHud(); }
   weapon = SWORD_TYPES[st.weapon] ? st.weapon : null;
   if(weapon) wpnEl.textContent = SWORD_TYPES[weapon].name + ' (' + SWORD_TYPES[weapon].dmg + ' dmg)';
   hp.v = Math.max(1, Math.min(MAX_HP, st.hp || MAX_HP)); hp.last = -1e9;
@@ -1481,6 +1497,7 @@ document.getElementById('newgame').onclick = () => {
   const all = loadSaves();
   let n = 1; while(all.some(g => g.name === 'Game ' + n)) n++;
   curSave = {id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: 'Game ' + n, created: Date.now(), played: Date.now(), state: null};
+  resetQuests();
   startGame();
   saveNow();                                                     // appears in the list straight away
 };
@@ -1496,6 +1513,406 @@ function startGame(){
   canvas.requestPointerLock();
 }
 document.getElementById('play').addEventListener('click', showSaves);
+
+// ---- villagers ----
+// They walk along the village's streets (a small graph of street, door and indoor points), go into houses,
+// run away when hit, and can be talked to with E.
+const VG = (function(){
+  const nodes = [], adj = [], map = new Map();
+  const node = (x, z, kind) => {
+    const k = Math.round(x*10) + ',' + Math.round(z*10);
+    if(map.has(k)) return map.get(k);
+    nodes.push({x, z, kind, house: -1}); adj.push([]); map.set(k, nodes.length - 1); return nodes.length - 1;
+  };
+  const link = (a, b) => { if(a !== b && !adj[a].includes(b)){ adj[a].push(b); adj[b].push(a); } };
+  const J = node(0, 0, 'street'), mainN = [J], crossN = [J], insideOf = {};
+  for(const x of [-52, 52]) mainN.push(node(x, 0, 'street'));
+  for(const z of [-48, 48]) crossN.push(node(0, z, 'street'));
+  for(const d of VILLAGE.doors){
+    const s = node(d.st[0], d.st[1], 'street');
+    (d.st[1] === 0 ? mainN : crossN).push(s);
+    const o = node(d.door[0], d.door[1], 'door'), n = node(d.inside[0], d.inside[1], 'inside');
+    nodes[o].house = nodes[n].house = d.b; insideOf[d.b] = n;
+    link(s, o); link(o, n);
+  }
+  mainN.sort((a, b) => nodes[a].x - nodes[b].x); crossN.sort((a, b) => nodes[a].z - nodes[b].z);
+  for(let i = 0; i + 1 < mainN.length; i++) link(mainN[i], mainN[i + 1]);
+  for(let i = 0; i + 1 < crossN.length; i++) link(crossN[i], crossN[i + 1]);
+  const streets = [], insides = [];
+  nodes.forEach((n, i) => { if(n.kind === 'street') streets.push(i); else if(n.kind === 'inside') insides.push(i); });
+  function route(from, to){
+    const prev = new Array(nodes.length).fill(-2); prev[from] = -1; const q = [from];
+    while(q.length){ const a = q.shift(); if(a === to) break; for(const b of adj[a]) if(prev[b] === -2){ prev[b] = a; q.push(b); } }
+    if(prev[to] === -2) return [from];
+    const p = []; for(let a = to; a !== -1; a = prev[a]) p.push(a);
+    return p.reverse();
+  }
+  return {nodes, adj, streets, insides, insideOf, route};
+})();
+
+const V_HP = 60, V_WALK = 1.8, V_RUN = 6.2;
+const villagers = [], vRespawn = [];
+let monsterKills = 0, talkTarget = null, dlg = null, vSeq = 0;
+const quest = {i: 0, state: 'none', base: 0};
+const talkEl = document.getElementById('talk'), tNameEl = document.getElementById('tname'), tTextEl = document.getElementById('ttext'), tHintEl = document.getElementById('thint');
+const questEl = document.getElementById('quest');
+const SKIN = [[0.93,0.76,0.62],[0.82,0.62,0.46],[0.65,0.45,0.32],[0.88,0.7,0.56]];
+const VSPECS = [
+  {name: 'Elder Maren', role: 'elder', title: 'the village elder', shirt: [0.42,0.17,0.58], pants: [0.35,0.14,0.5], hair: [0.92,0.92,0.95], skin: 3, scale: 0.9},
+  {name: 'Tilda', role: 'baker', title: 'the baker', shirt: [0.92,0.9,0.85], pants: [0.42,0.32,0.26], hair: [0.5,0.3,0.15], skin: 0, scale: 0.85, homeKind: 'bakery'},
+  {name: 'Orrin', role: 'smith', title: 'the blacksmith', shirt: [0.28,0.26,0.26], pants: [0.2,0.18,0.16], hair: [0.12,0.08,0.06], skin: 2, scale: 0.92, homeKind: 'smith'},
+  {name: 'Wynn', role: 'farmer', title: 'a farmer', shirt: [0.56,0.64,0.3], pants: [0.4,0.33,0.22], hair: [0.75,0.6,0.25], skin: 1, scale: 0.88},
+  {name: 'Fenn', role: 'lamplighter', title: 'the lamplighter', shirt: [0.2,0.3,0.52], pants: [0.18,0.18,0.24], hair: [0.3,0.2,0.12], skin: 0, scale: 0.86},
+  {name: 'Brea', role: 'merchant', title: 'a travelling merchant', shirt: [0.78,0.36,0.2], pants: [0.3,0.2,0.3], hair: [0.1,0.08,0.1], skin: 2, scale: 0.84},
+  {name: 'Old Gale', role: 'story', title: 'the storyteller', shirt: [0.5,0.5,0.56], pants: [0.34,0.32,0.3], hair: [0.95,0.95,0.95], skin: 3, scale: 0.84},
+  {name: 'Poppy', role: 'riddle', title: 'a young villager', shirt: [0.92,0.56,0.66], pants: [0.3,0.35,0.5], hair: [0.6,0.3,0.1], skin: 1, scale: 0.7},
+  {name: 'Garrick', role: 'guard', title: 'the village guard', shirt: [0.46,0.52,0.62], pants: [0.28,0.3,0.36], hair: [0.25,0.2,0.18], skin: 1, scale: 0.95},
+];
+function makeVillager(spec, x, z, extra){
+  const v = Object.assign({id: ++vSeq, spec, name: spec.name, role: spec.role, scale: spec.scale, x, z, y: heightAt(x, z), yaw: Math.random()*6.28,
+    node: -1, path: [], pi: 0, state: 'idle', timer: 1 + Math.random()*3, hp: V_HP, hitT: -1e9, showUntil: 0, bar: null, tag: null,
+    met: false, phase: Math.random()*6, moving: false, flee: 0, lat: (Math.random() - 0.5)*1.5, prev: -1, speed: V_WALK, home: -1, lastBread: -1e9, n: 0}, extra || {});
+  villagers.push(v); return v;
+}
+function homeFor(spec){
+  const bs = VILLAGE.buildings;
+  if(spec.homeKind){ const i = bs.findIndex(b => b.kind === spec.homeKind); if(i >= 0) return VG.insideOf[i]; }
+  const hs = []; bs.forEach((b, i) => { if(b.kind === 'house') hs.push(i); });
+  return VG.insideOf[hs[Math.floor(Math.random()*hs.length)]];
+}
+function spawnVillager(spec, atHome){
+  const home = homeFor(spec);
+  const ni = atHome ? home : VG.streets[Math.floor(Math.random()*VG.streets.length)], n = VG.nodes[ni];
+  const v = makeVillager(spec, n.x, n.z);
+  v.node = ni; v.home = home; return v;
+}
+for(const sp of VSPECS) spawnVillager(sp, false);
+
+const nodePos = (n, v) => n.kind !== 'street' ? [n.x, n.z] : (Math.abs(n.z) < 0.01 ? [n.x, n.z + v.lat] : [n.x + v.lat, n.z]);
+const compass = (dx, dz) => ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][((Math.round(Math.atan2(dx, -dz)/(Math.PI/4)) % 8) + 8) % 8];
+const near10 = d => Math.max(10, Math.round(d/10)*10);
+
+function planWander(v){
+  const r = Math.random(); let tgt;
+  const rs = () => VG.streets[Math.floor(Math.random()*VG.streets.length)];
+  if(v.role === 'elder') tgt = r < 0.8 ? rs() : v.home;
+  else if(r < 0.45) tgt = rs();
+  else if(r < 0.7) tgt = v.home;
+  else tgt = VG.insides[Math.floor(Math.random()*VG.insides.length)];
+  if(tgt === v.node) tgt = rs();
+  const p = VG.route(v.node, tgt);
+  if(p.length < 2){ v.timer = 2; return; }
+  v.path = p; v.pi = 1; v.state = 'walk'; v.speed = V_WALK;
+}
+function planFlee(v){
+  const here = VG.nodes[v.node], dp = (n) => Math.hypot(n.x - player.x, n.z - player.z);
+  let cand = VG.adj[v.node].filter(n => n !== v.prev); if(!cand.length) cand = VG.adj[v.node];
+  let best = -1, bd = -1;
+  for(const n of cand){ const d = dp(VG.nodes[n]); if(d > bd){ bd = d; best = n; } }
+  if(best < 0 || bd < dp(here) - 0.5){ v.state = 'idle'; v.timer = 1.5; v.moving = false; return; }   // cornered: crouch and wait
+  v.path = [v.node, best]; v.pi = 1; v.state = 'walk'; v.speed = V_RUN;
+}
+function hitVillager(v){
+  v.hp -= weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE;
+  v.hitT = gameT; v.showUntil = gameT + 4;
+  if(dlg && dlg.v === v) closeDlg();
+  if(v.hp <= 0){
+    if(v.bar) v.bar.remove(); if(v.tag) v.tag.remove();
+    villagers.splice(villagers.indexOf(v), 1);
+    addChat('', v.name + ' was slain.', true);
+    if(v.spec && v.role !== 'child') vRespawn.push({spec: v.spec, t: gameT + 45});
+    return;
+  }
+  v.flee = 12; v.speed = V_RUN;
+  if(v.state === 'follow' || v.state === 'lost') return;
+  const a = v.path[v.pi - 1], b = v.path[v.pi];                       // already on the way somewhere: keep to whichever end is further from the player
+  if(v.state === 'walk' && b !== undefined && a !== undefined){
+    const da = Math.hypot(VG.nodes[a].x - player.x, VG.nodes[a].z - player.z), db = Math.hypot(VG.nodes[b].x - player.x, VG.nodes[b].z - player.z);
+    if(db >= da){ v.path = [a, b]; v.pi = 1; } else { v.path = [b, a]; v.pi = 1; v.node = b; }
+    v.speed = V_RUN;
+  } else planFlee(v);
+}
+
+// ---- conversation ----
+function openDlg(v, lines, onEnd, endLabel){ dlg = {v, lines, i: 0, onEnd, endLabel}; renderDlg(); }
+function renderDlg(){
+  tNameEl.textContent = dlg.v.name + (dlg.v.spec && dlg.v.spec.title ? ', ' + dlg.v.spec.title : '');
+  tTextEl.textContent = dlg.lines[dlg.i];
+  const last = dlg.i === dlg.lines.length - 1;
+  tHintEl.textContent = keyName(binds.pickup) + ' — ' + (last ? (dlg.endLabel || 'close') : 'continue');
+  talkEl.style.display = 'block';
+}
+function closeDlg(){ dlg = null; talkEl.style.display = 'none'; }
+function talkKey(){
+  if(dlg){
+    if(dlg.i < dlg.lines.length - 1){ dlg.i++; renderDlg(); }
+    else { const f = dlg.onEnd; closeDlg(); if(f) f(); }
+    return true;
+  }
+  if(talkTarget){ startTalk(talkTarget); return true; }
+  return false;
+}
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const FORTUNES = ["A great journey begins with a single step... and usually a snack.", "Beware of anything that glows red in the dark.", "You will soon find something you did not know was lost.", "A mountain is only a very patient hill.", "Someone is thinking of you. It's probably a monster.", "Fortune favours those who carry a sword.", "The river knows where it is going; follow it and you may too."];
+const RIDDLES = [["I have cities but no houses, mountains but no trees, water but no fish. What am I?", "A map!"], ["What gets wetter the more it dries?", "A towel!"], ["What has hands but cannot clap?", "A clock!"], ["The more you take, the more you leave behind. What am I?", "Footsteps!"], ["What has a head and a tail but no body?", "A coin!"]];
+const TALES = ["Long ago the sky was dark for a hundred days, until a serpent made of light rose over the mountains. That's the Dragon of Light, and it has circled the island ever since.", "They say the swords on the peaks were driven in by heroes who never came back down. Only those who climb get to take one.", "This village was built round a single well. The water is so cold in summer it makes your teeth ache.", "When I was young the river ran straight through the middle of the village. We moved the houses, not the river. Wiser that way.", "The ocean is endless, they say. A fisherman once rowed for a week and found only more water. Then he found his own wake and came home."];
+function sunWord(){ const y = sunDir()[1]; return y < -0.05 ? 'night' : y < 0.3 ? 'twilight' : 'day'; }
+function introLine(v){
+  if(!v.met || Math.random() < 0.3){ v.met = true; return ["Hello there! I'm " + v.name + ", " + v.spec.title + "."]; }
+  return [];
+}
+function talkLines(v){
+  const L = introLine(v), s = v.role;
+  if(s === 'baker'){
+    const wait = 60 - (gameT - v.lastBread);
+    if(hp.v >= MAX_HP - 1) L.push("Fresh bread, straight from the oven! ...but you look perfectly healthy. Come back when you're hurt.");
+    else if(wait > 0) L.push("The next loaf is still baking. Give me " + Math.ceil(wait) + " more seconds.");
+    else { v.lastBread = gameT; hp.v = Math.min(MAX_HP, hp.v + 30); hp.last = gameT; L.push("You look hungry. Here, a warm loaf, on the house!", "(You eat the bread and recover 30 health.)"); }
+  } else if(s === 'smith'){
+    let best = null, bd = 1e9;
+    for(const w of worldSwords){ const d = Math.hypot(w.x - player.x, w.z - player.z); if(d < bd){ bd = d; best = w; } }
+    L.push(weapon ? "That " + SWORD_TYPES[weapon].name + " is a fine blade. Keep it oiled." : "No weapon? Fists won't get you far against the things that come out at night.");
+    if(best) L.push("I hear there's a " + SWORD_TYPES[best.type].name + " stuck in a mountain top, about " + near10(bd) + " m to the " + compass(best.x - player.x, best.z - player.z) + " of here.");
+  } else if(s === 'farmer'){
+    const w = sunWord();
+    L.push(w === 'night' ? "It's dark out. Stay near the lamps; monsters come out when there's no light." : w === 'twilight' ? "The light's fading. Better be indoors soon." : "Lovely day. Monsters hate daylight; they only skulk in the shade.");
+    L.push("The grass grows well on this island, but it won't mow itself.");
+  } else if(s === 'lamplighter'){
+    if(dragon.dead) L.push("They say the Dragon of Light has been slain. The sky feels emptier.");
+    else if(dragon.ready){ const h = snake.pts[0], d = Math.hypot(h[0] - player.x, h[2] - player.z); L.push("I saw the Dragon of Light a while ago, about " + near10(d) + " m to the " + compass(h[0] - player.x, h[2] - player.z) + ".", "Don't annoy it. Those fireballs are no joke."); }
+    else L.push("No sign of the Dragon of Light today.");
+  } else if(s === 'merchant'){
+    L.push("Your fortune, traveller: " + pick(FORTUNES));
+  } else if(s === 'story'){
+    L.push(TALES[v.n++ % TALES.length]);
+  } else if(s === 'riddle'){
+    const r = pick(RIDDLES); L.push("Riddle time! " + r[0], "Give up? It's " + r[1]);
+  } else if(s === 'guard'){
+    L.push("Keep your wits about you. You have " + Math.round(hp.v) + " health" + (weapon ? " and a " + SWORD_TYPES[weapon].name : " and only your fists") + ".", monsterKills ? "You've slain " + monsterKills + " monster" + (monsterKills === 1 ? "" : "s") + " so far. The village is grateful." : "You haven't slain any monsters yet. Be careful out there.");
+  } else if(s === 'child'){
+    L.push(quest.state === 'ready' || quest.i > 1 ? "Thank you for bringing me home! Mum was so worried." : "Hello!");
+  }
+  return L;
+}
+function questDef(i){
+  const k = i % 3, tier = Math.floor(i/3);
+  if(k === 0){ const n = 10 + 5*tier; return {kind: 'kill', n, title: 'Slay ' + n + ' monsters', ask: "Creatures creep out of the dark and trouble our village. Slay " + n + " of them and I will be in your debt."}; }
+  if(k === 1) return {kind: 'child', title: 'Find the lost child', ask: "A little boy named Pip wandered off from the village and has not come back. Please find him and bring him home safely."};
+  return {kind: 'summit', title: 'Reach a mountain summit', ask: "The old custom says a traveller should look out over the whole island from a mountain top. Climb above the clouds... well, very high, and come back to tell me what you saw."};
+}
+const SUMMIT_Y = 78;
+function questText(){
+  const d = questDef(quest.i);
+  if(quest.state === 'ready') return 'Quest complete — return to Elder Maren';
+  if(d.kind === 'kill') return 'Quest: ' + d.title + ' (' + Math.min(d.n, monsterKills - quest.base) + '/' + d.n + ')';
+  if(d.kind === 'child'){ const c = villagers.find(v => v.role === 'child' && v.state === 'follow'); return c ? 'Quest: bring Pip back to the village' : 'Quest: ' + d.title; }
+  return 'Quest: ' + d.title;
+}
+function updateQuestHud(){
+  if(quest.state === 'none'){ questEl.style.display = 'none'; return; }
+  const t = questText(); questEl.style.display = 'block'; if(questEl.textContent !== t) questEl.textContent = t;
+}
+function placeChild(){
+  for(let t = 0; t < 120; t++){
+    const a = Math.random()*6.283, r = 130 + Math.random()*180, x = Math.cos(a)*r, z = Math.sin(a)*r, h = heightAt(x, z);
+    if(h > 2 && h < 45 && waterDepthAt(x, z) < 0.1 && Math.abs(heightAt(x + 3, z) - h) < 1.5 && Math.abs(heightAt(x, z + 3) - h) < 1.5){
+      const c = makeVillager({name: 'Pip', role: 'child', title: 'a lost boy', shirt: [0.3,0.6,0.85], pants: [0.45,0.3,0.2], hair: [0.7,0.45,0.2], skin: 0, scale: 0.6}, x, z, {state: 'lost', met: true});
+      c.warned = false; return c;
+    }
+  }
+}
+function elderTalk(v){
+  const d = questDef(quest.i), L = introLine(v);
+  if(quest.state === 'none'){
+    L.push(d.ask, "Task: " + d.title + ".");
+    return {lines: L, endLabel: 'accept the quest', onEnd: () => {
+      quest.state = 'active'; quest.base = monsterKills;
+      if(d.kind === 'child' && !villagers.some(c => c.role === 'child')) placeChild();
+      addChat('', 'New quest: ' + d.title, true); updateQuestHud();
+    }};
+  }
+  if(quest.state === 'active'){
+    if(d.kind === 'kill') L.push("How goes the hunt? You have slain " + Math.min(d.n, monsterKills - quest.base) + " of " + d.n + ".");
+    else if(d.kind === 'child'){
+      const c = villagers.find(x => x.role === 'child');
+      if(c && c.state === 'lost') L.push("Pip was last seen playing somewhere to the " + compass(c.x, c.z) + ", perhaps " + near10(Math.hypot(c.x, c.z)) + " m from here. Please hurry!");
+      else if(c) L.push("You have found him! Now bring him back to the village.");
+      else L.push("Please find Pip!");
+    } else L.push("Have you climbed a mountain yet? The view is worth it. Go as high as you can.");
+    return {lines: L};
+  }
+  L.push("You have done it! The whole village thanks you.", "Take a moment to rest. (Your health is fully restored.)");
+  return {lines: L, endLabel: 'finish the quest', onEnd: () => {
+    hp.v = MAX_HP; hp.last = gameT; addChat('', 'Quest complete: ' + d.title + '!', true);
+    quest.i++; quest.state = 'none'; updateQuestHud();
+  }};
+}
+function startTalk(v){
+  if(v.role === 'child' && v.state === 'lost'){
+    openDlg(v, ["Hic... I got lost chasing a butterfly! I want to go home. Can I come with you?"], () => { v.state = 'follow'; updateQuestHud(); addChat('', 'Pip is following you. Take him to the village.', true); }, 'take him home');
+    return;
+  }
+  if(v.role === 'child' && v.state === 'follow'){ openDlg(v, ["I'm right behind you! Which way is home?"]); return; }
+  if(v.role === 'elder'){ const t = elderTalk(v); openDlg(v, t.lines, t.onEnd, t.endLabel); return; }
+  openDlg(v, talkLines(v));
+}
+
+function updateVillagers(dt){
+  if(!placeChild.done && quest.state === 'active' && questDef(quest.i).kind === 'child' && !villagers.some(c => c.role === 'child')) placeChild();
+  for(let i = vRespawn.length - 1; i >= 0; i--) if(gameT >= vRespawn[i].t){ spawnVillager(vRespawn[i].spec, true); vRespawn.splice(i, 1); }
+  talkTarget = null; let bestD = 3.4;
+  const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+  for(const v of villagers){
+    if(v.hp <= 0) continue;
+    const dx = v.x - player.x, dz = v.z - player.z, d = Math.hypot(dx, dz);
+    if(v.flee > 0) v.flee -= dt;
+    if(dlg && dlg.v === v && (d > 6 || v.flee > 0)) closeDlg();
+    const talking = dlg && dlg.v === v;
+    v.moving = false;
+    if(v.state === 'lost'){
+      v.yaw = Math.atan2(-dx, -dz);
+      if(!v.warned && d < 45 && d > 4){ v.warned = true; addChat('', 'You hear a faint cry for help nearby...', true); }
+    } else if(v.state === 'follow'){
+      v.yaw = Math.atan2(-dx, -dz);
+      if(d > 2.4){
+        const sp = (d > 9 ? 6.5 : 4.2)*dt, nx = v.x - dx/d*sp, nz = v.z - dz/d*sp;       // (dx,dz) points from the player to the child
+        if(!villageBlocked(nx, v.z, 0.35)) v.x = nx; if(!villageBlocked(v.x, nz, 0.35)) v.z = nz;
+        v.moving = true; v.phase += dt*5;
+      }
+      if(quest.state === 'active' && questDef(quest.i).kind === 'child' && Math.hypot(v.x, v.z) < 26 && d < 9){
+        let bi = 0, bd = 1e9;
+        VG.streets.forEach(s => { const n = VG.nodes[s], q = Math.hypot(n.x - v.x, n.z - v.z); if(q < bd){ bd = q; bi = s; } });
+        v.node = bi; v.x = VG.nodes[bi].x; v.z = VG.nodes[bi].z; v.state = 'idle'; v.timer = 2; v.home = homeFor({}); v.spec = Object.assign({}, v.spec, {title: 'a young boy'});
+        quest.state = 'ready'; updateQuestHud(); addChat('', 'Pip is safe at home. Return to Elder Maren.', true);
+      }
+    } else if(talking){
+      v.yaw = Math.atan2(-dx, -dz);
+    } else {
+      if(v.state === 'idle'){
+        v.timer -= dt;
+        if(v.timer <= 0){ if(v.flee > 0) planFlee(v); else planWander(v); }
+      } else if(v.state === 'walk'){
+        const n = VG.nodes[v.path[v.pi]], p = nodePos(n, v), ex = p[0] - v.x, ez = p[1] - v.z, ed = Math.hypot(ex, ez), st = v.speed*dt;
+        if(ed <= st + 0.02){
+          v.x = p[0]; v.z = p[1]; v.prev = v.node; v.node = v.path[v.pi]; v.pi++;
+          if(v.pi >= v.path.length){
+            if(v.flee > 0) planFlee(v);
+            else { v.state = 'idle'; v.timer = n.kind === 'inside' ? 6 + Math.random()*14 : 1.5 + Math.random()*4; }
+          } else if(v.flee > 0 && v.speed < V_RUN) v.speed = V_RUN;
+        } else {
+          v.x += ex/ed*st; v.z += ez/ed*st; v.yaw = Math.atan2(ex, ez); v.moving = true; v.phase += dt*v.speed*2.2;
+        }
+        if(v.flee <= 0 && v.speed > V_WALK) v.speed = V_WALK;
+      }
+      if(v.state === 'idle' && v.flee <= 0 && v.timer > 0.2 && d < 5) v.yaw = Math.atan2(-dx, -dz);      // glance at someone standing close by
+    }
+    v.y = heightAt(v.x, v.z);
+    if(v.state !== 'idle' || true){
+      const ok = d < bestD && !(v.flee > 0) && Math.abs(player.y - v.y) < 3 && (dx*fx + dz*fz)/(d || 1) > 0.35;
+      let clear = ok;
+      if(ok) for(let t = 0.25; t < 1; t += 0.25) if(villageBlocked(player.x + dx*t, player.z + dz*t, 0.05)){ clear = false; break; }
+      if(clear){ bestD = d; talkTarget = v; }
+    }
+  }
+  if(dlg && (menuOpen || dead || !villagers.includes(dlg.v))) closeDlg();
+  if(quest.state === 'active'){
+    const d = questDef(quest.i);
+    if(d.kind === 'kill' && monsterKills - quest.base >= d.n) quest.state = 'ready';
+    else if(d.kind === 'summit' && player.y > SUMMIT_Y) quest.state = 'ready';
+    if(quest.state === 'ready') addChat('', 'Quest objective complete! Return to Elder Maren.', true);
+  }
+  updateQuestHud();
+}
+
+function drawVillagers(){
+  const sunNow = sunDir(); gl.uniformMatrix3fv(mPm, false, I3);
+  for(const v of villagers){
+    if(Math.hypot(v.x - player.x, v.z - player.z) > 230) continue;
+    const S = v.scale, sp = v.spec, sk = SKIN[sp.skin || 0];
+    gl.uniform3f(mBase, v.x, v.y, v.z); gl.uniform1f(mYaw, v.yaw); gl.uniform1f(mVis, shadowAt(v.x, v.z, sunNow));
+    gl.uniform1f(mTint, Math.max(0, 1 - (gameT - v.hitT)/0.3)*0.85);
+    const sw = v.moving ? Math.sin(v.phase)*0.7 : 0, cow = v.flee > 0 && v.state === 'idle';
+    const part = (ox, oy, oz, sx, sy, sz, c, px, py, pz, rx, em) => {
+      gl.uniform3f(mOff, ox*S, oy*S, oz*S); gl.uniform3f(mSize, sx*S, sy*S, sz*S); gl.uniform3f(mCol, c[0], c[1], c[2]);
+      gl.uniform3f(mPivot, (px || 0)*S, (py || 0)*S, (pz || 0)*S); gl.uniform1f(mRx, rx || 0); gl.uniform1f(mEmis, em || 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 36);
+    };
+    const elder = v.role === 'elder', robe = sp.shirt;
+    if(elder){
+      part(0, 0.85, 0, 0.95, 1.7, 0.6, robe, 0,0,0, 0);                                    // long robe
+      part(0, 0.06, 0, 1.0, 0.12, 0.66, [0.85,0.7,0.25], 0,0,0, 0);                       // gold hem
+      part(0, 1.35, 0.31, 0.2, 1.4, 0.04, [0.85,0.7,0.25], 0,0,0, 0);                      // gold trim down the front
+      part(-0.58, 1.3, 0, 0.26, 0.85, 0.28, robe, -0.58, 1.65, 0, -sw*0.8);
+      part( 0.58, 1.3, 0, 0.26, 0.85, 0.28, robe,  0.58, 1.65, 0, -0.55 + sw*0.2);          // right arm holds the staff
+      part(0.62, 1.15, 0.28, 0.07, 2.5, 0.07, [0.4,0.27,0.15], 0,0,0, 0);
+      part(0.62, 2.45, 0.28, 0.22, 0.22, 0.22, [0.75,0.45,1.0], 0,0,0, 0, 1);              // glowing orb
+    } else {
+      const sq = cow ? 0.22 : 0;
+      part(-0.17, 0.4, 0, 0.28, 0.8, 0.3, sp.pants, -0.17, 0.8, 0, sw);
+      part( 0.17, 0.4, 0, 0.28, 0.8, 0.3, sp.pants,  0.17, 0.8, 0, -sw);
+      part(0, 1.25, 0, 0.8, 0.9, 0.45, sp.shirt, 0,0,0, 0);
+      part(-0.52, 1.2, 0, 0.22, 0.8, 0.24, sp.shirt, -0.52, 1.6, 0, -sw*0.8 - sq*3);
+      part( 0.52, 1.2, 0, 0.22, 0.8, 0.24, sp.shirt,  0.52, 1.6, 0, sw*0.8 - sq*3);
+      if(v.role === 'smith') part(0, 1.1, 0.25, 0.7, 0.8, 0.06, [0.38,0.25,0.15], 0,0,0, 0);          // leather apron
+      if(v.role === 'baker'){ part(0, 1.1, 0.25, 0.7, 0.8, 0.06, [0.97,0.97,0.97], 0,0,0, 0); part(0, 2.3, 0, 0.5, 0.35, 0.5, [0.97,0.97,0.97], 0,0,0, 0); }   // apron and chef's hat
+      if(v.role === 'guard'){ part(0, 2.18, 0, 0.55, 0.22, 0.55, [0.5,0.52,0.56], 0,0,0, 0); part(0.55, 1.4, 0.3, 0.06, 1.7, 0.06, [0.45,0.3,0.15], 0,0,0, 0); part(0.55, 2.3, 0.3, 0.12, 0.35, 0.12, [0.7,0.72,0.78], 0,0,0, 0); }   // helmet and spear
+      if(v.role === 'farmer') part(0, 2.15, 0, 0.85, 0.07, 0.85, [0.85,0.72,0.35], 0,0,0, 0);       // straw hat
+      if(v.role === 'lamplighter'){ part(0.55, 1.5, 0.35, 0.05, 1.9, 0.05, [0.25,0.2,0.15], 0,0,0, 0); part(0.55, 2.5, 0.35, 0.14, 0.14, 0.14, [1,0.8,0.4], 0,0,0, 0, 1); }
+      if(v.role === 'merchant') part(0, 1.3, -0.35, 0.6, 0.8, 0.28, [0.55,0.35,0.2], 0,0,0, 0);         // backpack
+    }
+    part(0, 1.9, 0.02, 0.46, 0.48, 0.46, sk, 0,0,0, 0);
+    if(v.role !== 'baker' && v.role !== 'guard') part(0, 2.1, -0.02, 0.5, 0.16, 0.5, sp.hair, 0,0,0, 0);
+    part(0, 1.9, -0.1, 0.5, 0.48, 0.3, sp.hair, 0,0,0, 0);
+    part(-0.11, 1.93, 0.24, 0.07, 0.07, 0.04, [0.08,0.08,0.1], 0,0,0, 0);
+    part( 0.11, 1.93, 0.24, 0.07, 0.07, 0.04, [0.08,0.08,0.1], 0,0,0, 0);
+    if(elder){
+      part(0, 1.62, 0.2, 0.36, 0.42, 0.12, [0.95,0.95,0.97], 0,0,0, 0);                                // beard
+      part(0, 2.18, 0, 0.7, 0.1, 0.7, robe, 0,0,0, 0);                                                  // wizard hat: brim and three cone steps
+      part(0, 2.36, 0, 0.5, 0.26, 0.5, robe, 0,0,0, 0); part(0, 2.6, 0, 0.34, 0.26, 0.34, robe, 0,0,0, 0); part(0, 2.84, 0, 0.18, 0.26, 0.18, robe, 0,0,0, 0);
+    }
+  }
+  gl.uniform1f(mTint, 0); gl.uniform1f(mRx, 0); gl.uniform1f(mEmis, 0);
+}
+
+function updateVillagerUI(cx, cy, cz, cR_, cU_, cF_, aspect){
+  for(const v of villagers){
+    let show = Math.hypot(v.x - cx, v.z - cz) < 16 || gameT < v.showUntil, sx = 0, sy = 0;
+    if(show){
+      const rx = v.x - cx, ry = v.y + 2.35*v.scale + (v.role === 'elder' ? 0.9 : 0) - cy, rz = v.z - cz;
+      const zv = rx*cF_[0] + ry*cF_[1] + rz*cF_[2];
+      if(zv < 0.3) show = false;
+      else {
+        const xv = rx*cR_[0] + ry*cR_[1] + rz*cR_[2], yv = rx*cU_[0] + ry*cU_[1] + rz*cU_[2];
+        sx = (xv/(zv*TANH*aspect)*0.5 + 0.5)*innerWidth; sy = (1 - (yv/(zv*TANH)*0.5 + 0.5))*innerHeight;
+        const len = Math.hypot(rx, ry, rz);
+        for(let t = 1.0; t < len; t += 0.7){
+          const f = t/len; if(cy + ry*f < heightAt(cx + rx*f, cz + rz*f)){ show = false; break; }
+          if(Math.abs(cx) < 70 && Math.abs(cz) < 70 && villageBlocked(cx + rx*f, cz + rz*f, 0) && cy + ry*f < VH + 3.3){ show = false; break; }   // hidden behind walls
+        }
+      }
+    }
+    if(show && !v.tag){ v.tag = document.createElement('div'); v.tag.className = 'ptag'; document.body.appendChild(v.tag); }
+    if(v.tag){
+      v.tag.style.display = show ? 'block' : 'none';
+      if(show){
+        v.tag.style.left = sx + 'px'; v.tag.style.top = sy + 'px';
+        const mark = v.role === 'elder' ? (quest.state === 'none' ? '❗ ' : quest.state === 'ready' ? '❓ ' : '') : '';
+        const t = mark + v.name; if(v.tag.textContent !== t) v.tag.textContent = t;
+      }
+    }
+    const showBar = show && gameT < v.showUntil;
+    if(showBar && !v.bar){ v.bar = document.createElement('div'); v.bar.className = 'mbar'; v.bar.innerHTML = '<i></i>'; document.body.appendChild(v.bar); }
+    if(v.bar){
+      v.bar.style.display = showBar ? 'block' : 'none';
+      if(showBar){ v.bar.style.left = sx + 'px'; v.bar.style.top = (sy + 4) + 'px'; v.bar.firstChild.style.width = Math.max(0, v.hp/V_HP*100) + '%'; }
+    }
+  }
+}
+function resetQuests(){
+  monsterKills = 0; quest.i = 0; quest.state = 'none'; quest.base = 0; closeDlg();
+  for(let i = villagers.length - 1; i >= 0; i--) if(villagers[i].role === 'child'){ if(villagers[i].tag) villagers[i].tag.remove(); if(villagers[i].bar) villagers[i].bar.remove(); villagers.splice(i, 1); }
+  updateQuestHud();
+}
 
 function updateMonsters(dt){
   gameT += dt;
@@ -1696,6 +2113,10 @@ function updatePickup(dt){
     promptEl.style.display = 'block';
     ptxt.textContent = 'Hold E to pick up ' + t.name + ' (' + t.dmg + ' dmg)';
     pfill.style.width = Math.min(100, pickProg*100) + '%';
+  } else if(talkTarget && !dlg){
+    promptEl.style.display = 'block';
+    ptxt.textContent = 'Press ' + keyName(binds.pickup) + ' to talk to ' + talkTarget.name;
+    pfill.style.width = '0%';
   } else promptEl.style.display = 'none';
 }
 
@@ -2431,6 +2852,7 @@ function frame(now){
   }
 
   updateMonsters(dt);
+  updateVillagers(dt);
   updatePickup(dt);
   updateMP();
 
@@ -2530,12 +2952,14 @@ function frame(now){
     drawVillage(sun, cx, cz);
     drawPlayers(sun);
     drawMonsters();
+    drawVillagers();
     drawDragon(cx, cz);
     drawFireballs();
   }
 
   updateTags(cx, cy, cz, [cyw, 0, sy], [-sy*sp, cp, cyw*sp], [sy*cp, sp, -cyw*cp], aspect);
   updateBars(cx, cy, cz, [cyw, 0, sy], [-sy*sp, cp, cyw*sp], [sy*cp, sp, -cyw*cp], aspect);
+  updateVillagerUI(cx, cy, cz, [cyw, 0, sy], [-sy*sp, cp, cyw*sp], [sy*cp, sp, -cyw*cp], aspect);
 
   // pass 3: the fist, on top of everything
   gl.clear(gl.DEPTH_BUFFER_BIT);
