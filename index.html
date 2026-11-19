@@ -1171,7 +1171,8 @@ function applyRemoteDigs(list){
   }
   if(n) uploadHeights();
 }
-function sendDigsTo(id){ for(let i = 0; i < digLog.length; i += 80) mpSend({t: 'digs', a: digLog.slice(i, i + 80)}, id); }
+function sendDigsTo(id){ mpSend({t: 'sws', up: performance.now(), a: worldSwords.map(w => [r2n(w.x), r2n(w.z), w.type, r2n(w.yaw), r2n(w.lean)])}, id);
+   for(let i = 0; i < digLog.length; i += 80) mpSend({t: 'digs', a: digLog.slice(i, i + 80)}, id); }
 function breakArea(cx, cz, ph, replay, noUpload){
   const r3 = v => Math.round(v*1000)/1000;
   cx = r3(((cx % PERIOD) + PERIOD) % PERIOD);
@@ -1332,9 +1333,15 @@ const DEATH_MESSAGES = [
   "Maybe don't die instead next time?",
   "Kaboom",
 ];
+function dropSword(w){ worldSwords.push(w); mpSend({t: 'sw+', w: [r2n(w.x), r2n(w.z), w.type, r2n(w.yaw), r2n(w.lean)]}); }
+function takeSword(w){ worldSwords.splice(worldSwords.indexOf(w), 1); mpSend({t: 'sw-', x: r2n(w.x), z: r2n(w.z), ty: w.type}); }
 function die(){
   document.getElementById('deadmsg').textContent = DEATH_MESSAGES[Math.floor(Math.random()*DEATH_MESSAGES.length)];
   dead = true; holding = false; ridden = false;
+  if(weapon){                                   // everything you carry drops where you died
+    dropSword({x: player.x, z: player.z, type: weapon, yaw: Math.random()*6.28, lean: 0.1});
+    weapon = null; wpnEl.textContent = '';
+  }
   if(chatOpen) closeChat();
   for(const k in keys) keys[k] = false;
   deadEl.classList.add('show');
@@ -2204,9 +2211,9 @@ function updatePickup(dt){
     pickProg += dt / PICK_TIME;
     if(pickProg >= 1){
       const w = pickTarget;
-      if(weapon) worldSwords.push({x: player.x, z: player.z, type: weapon, yaw: Math.random()*6.28, lean: 0.1});   // swap: drop the old one
+      takeSword(w);
+      if(weapon) dropSword({x: player.x, z: player.z, type: weapon, yaw: Math.random()*6.28, lean: 0.1});   // swap: drop the old one
       weapon = w.type;
-      worldSwords.splice(worldSwords.indexOf(w), 1);
       pickTarget = null; pickProg = 0;
       const t = SWORD_TYPES[weapon];
       wpnEl.textContent = t.name + ' (' + t.dmg + ' dmg)';
@@ -2416,6 +2423,12 @@ function mpEvent(from, o){
     } break;
     case 'df': { const f = fireballs.find(q => q.id === o.id); if(f && !f.deflected) deflectFireball(f, true); break; }
     case 'mk': monsterKills++; break;
+    case 'sw+': if(Array.isArray(o.w) && SWORD_TYPES[o.w[2]] && !worldSwords.some(q => Math.abs(q.x - o.w[0]) < 0.02 && Math.abs(q.z - o.w[1]) < 0.02 && q.type === o.w[2])) worldSwords.push({x: o.w[0], z: o.w[1], type: o.w[2], yaw: o.w[3], lean: o.w[4]}); break;
+    case 'sw-': { const i = worldSwords.findIndex(q => Math.abs(q.x - o.x) < 0.02 && Math.abs(q.z - o.z) < 0.02 && q.type === o.ty); if(i >= 0) worldSwords.splice(i, 1); break; }
+    case 'sws': if(typeof o.up === 'number' && o.up > performance.now() && Array.isArray(o.a)){      // the longer-running player's sword list wins
+      worldSwords.length = 0;
+      for(const w of o.a) if(SWORD_TYPES[w[2]]) worldSwords.push({x: w[0], z: w[1], type: w[2], yaw: w[3], lean: w[4]});
+    } break;
     case 'hm': if(mpIsHost()){ const m = monsters.find(q => q.id === o.id); if(m) monsterDamage(m, Math.max(0, Math.min(100, +o.d || 0)), +o.x || 0, +o.z || 0, from); } break;
     case 'hv': if(mpIsHost()){ const v = villagers.find(q => q.name === o.n && q.role !== 'child'); if(v && v.hp > 0) villagerDamage(v, Math.max(0, Math.min(100, +o.d || 0)), {x: +o.x || 0, z: +o.z || 0}); } break;
     case 'S': if(from === mpHostId()) applySnapshot(o); break;
@@ -3190,9 +3203,17 @@ function frame(now){
     box(fxp + 0.03, fyp - 0.03, fzp - 0.35, 0.15, 0.15, 0.95, 0.78, 0.82, 0.88);  // smooth rectangular prism
   }
 
-  requestAnimationFrame(frame);
+  if(!inBg) requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+// Multiplayer can't freeze the world, and browsers stop animation frames in a hidden tab: keep the game ticking in the
+// background so monsters (and the host's simulation) carry on and you can still be hurt, or die, while you're away.
+let inBg = false;
+setInterval(() => {
+  if(!(document.hidden && mpRoom && started)) return;
+  const now = performance.now(); inBg = true;
+  try { let t = Math.max(last, now - 2000), n = 0; while(t < now && n++ < 25){ t = Math.min(now, t + 100); frame(t); } } catch(e){} finally { inBg = false; }
+}, 400);
 </script>
 </body>
 </html>
