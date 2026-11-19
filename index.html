@@ -512,6 +512,7 @@ const SWORD_TYPES = {
   rust:  {name: 'Rusted Iron Sword', dmg: 28, blade: [0.52,0.29,0.16], guard: [0.38,0.22,0.13]},
 };
 const SWORD_KEYS = Object.keys(SWORD_TYPES);
+SWORD_TYPES.bow = {name: 'Bow', dmg: 20, bow: true, blade: [0.45,0.30,0.15], guard: [0.75,0.7,0.55]};     // bought, never found on a peak
 const worldSwords = [];
 (function placeSwords(){
   const W = 10, MINH = 45, cand = [];
@@ -1304,7 +1305,50 @@ function uploadHeights(){
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, N, gl.RGBA, gl.FLOAT, heights);
 }
 
+const arrows = [];
+function shootArrow(){
+  if(inv.arrows <= 0){ addChat('', 'You have no arrows.', true); return; }
+  inv.arrows--; updWpn();
+  const s = Math.sin(player.yaw), c = Math.cos(player.yaw), sp = Math.sin(player.pitch), cp = Math.cos(player.pitch), V = 55;
+  const a = {x: player.x + s*cp*0.6, y: player.y + EYE - 0.1 + sp*0.6, z: player.z - c*cp*0.6, vx: s*cp*V, vy: sp*V, vz: -c*cp*V, life: 0, mine: true};
+  arrows.push(a);
+  mpSend({t: 'ar', x: r2n(a.x), y: r2n(a.y), z: r2n(a.z), vx: r2n(a.vx), vy: r2n(a.vy), vz: r2n(a.vz)});
+}
+function updateArrows(dt){
+  if(dt <= 0) return;
+  for(let i = arrows.length - 1; i >= 0; i--){
+    const a = arrows[i];
+    if(a.stuck){ a.life += dt; if(a.life > 20) arrows.splice(i, 1); continue; }
+    const steps = Math.max(1, Math.ceil(Math.hypot(a.vx, a.vy, a.vz)*dt/0.5)), sdt = dt/steps; let done = false;
+    for(let k = 0; k < steps && !done; k++){
+      a.vy -= 9*sdt; a.x += a.vx*sdt; a.y += a.vy*sdt; a.z += a.vz*sdt;
+      if(a.mine){
+        for(const m of monsters) if(!done && Math.hypot(a.x - m.x, a.z - m.z) < 0.8*MS && a.y > m.y - 0.1 && a.y < m.y + 2.5*MS){ hitMonster(m, SWORD_TYPES.bow.dmg); done = true; }
+        for(const v of villagers) if(!done && v.role !== 'child' && Math.hypot(a.x - v.x, a.z - v.z) < 0.6*v.scale && a.y > v.y - 0.1 && a.y < v.y + 2.3*v.scale){ hitVillager(v, SWORD_TYPES.bow.dmg); done = true; }
+        for(const r of remote.values()) if(!done && !r.dd && r.id && Math.hypot(a.x - r.x, a.z - r.z) < 0.85*MSP && a.y > r.y - 0.1 && a.y < r.y + 2.6*MSP){ hitPlayer(r, SWORD_TYPES.bow.dmg); done = true; }
+        if(!done && snakeHit(a.x, a.y, a.z)){ applyDragonDamage(SWORD_TYPES.bow.dmg, true); done = true; }
+      }
+      if(done){ arrows.splice(i, 1); break; }
+      if(a.y < heightAt(a.x, a.z) || villageBlocked(a.x, a.z, 0) && a.y < VH + 3.4 || treeAtPoint(a.x, a.y, a.z)){ a.stuck = true; a.life = 0; a.vx = a.vy = a.vz = 0; done = true; }
+    }
+    if(!a.stuck){ a.life += dt; if(a.life > 8) arrows.splice(i, 1); }
+  }
+}
+function drawArrows(){
+  if(!arrows.length) return;
+  gl.uniform3f(mBase, 0, 0, 0); gl.uniform1f(mYaw, 0); gl.uniform1f(mRx, 0); gl.uniform1f(mTint, 0); gl.uniform1f(mVis, 1); gl.uniform1f(mEmis, 0); gl.uniformMatrix3fv(mPm, false, I3);
+  for(const a of arrows){
+    const sp = Math.hypot(a.vx, a.vy, a.vz) || 1, dx = a.stuck ? 0 : a.vx/sp, dy = a.stuck ? 0.6 : a.vy/sp, dz = a.stuck ? 0 : a.vz/sp;
+    for(let k = 0; k < 4; k++){
+      const x = a.x - dx*0.2*k, y = a.y - dy*0.2*k, z = a.z - dz*0.2*k;
+      gl.uniform3f(mOff, x, y, z); gl.uniform3f(mSize, 0.07, 0.07, 0.07); gl.uniform3f(mPivot, x, y, z);
+      if(k === 0) gl.uniform3f(mCol, 0.75, 0.75, 0.8); else gl.uniform3f(mCol, 0.5, 0.36, 0.2);
+      gl.drawArrays(gl.TRIANGLES, 0, 36);
+    }
+  }
+}
 function doPunch(){
+  if(weapon === 'bow'){ shootArrow(); return; }
   const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
   const sp = Math.sin(player.pitch), cp = Math.cos(player.pitch);
   const dx = s*cp, dy = sp, dz = -c*cp;
@@ -1349,8 +1393,8 @@ function doPunch(){
 // ---- player vs player: the attacker works out the hit and tells the victim through presence ----
 const myCid = Math.random().toString(36).slice(2, 10);
 let hitSeq = 0, hitTarget = '', hitDmg = 0;
-function hitPlayer(r){
-  hitSeq++; hitTarget = r.id; hitDmg = weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE;
+function hitPlayer(r, dmgO){
+  hitSeq++; hitTarget = r.id; hitDmg = dmgO || (weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE);
   r.hitT = performance.now();
 }
 // ---- health ----
@@ -1387,8 +1431,8 @@ function removeMonster(i){
   if(m.bar) m.bar.remove();
   monsters.splice(i, 1);
 }
-function hitMonster(m){
-  const dmg = weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE;
+function hitMonster(m, dmgO){
+  const dmg = dmgO || (weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE);
   if(mpClient()){                                  // the host runs the monsters: tell it, and flash locally
     m.showUntil = gameT + 4; m.hitT = gameT; m.hp -= dmg;
     mpSend({t: 'hm', id: m.id, d: dmg, x: Math.round(player.x*100)/100, z: Math.round(player.z*100)/100}, mpHostId());
@@ -1447,15 +1491,15 @@ function die(){
   dead = true; holding = false; ridden = false;
   if(weapon){                                   // everything you carry drops where you died
     dropSword({x: player.x, z: player.z, type: weapon, yaw: Math.random()*6.28, lean: 0.1});
-    weapon = null; wpnEl.textContent = 'Fist';
+    weapon = null; updWpn();
   }
   if(inv.bread || inv.potion || inv.leather || inv.iron){                  // food, potions and armour drop in a bag
     dropSword({x: player.x + 0.8, z: player.z, type: 'bag', yaw: Math.random()*6.28, lean: 0, items: {b: inv.bread, p: inv.potion, l: inv.leather ? 1 : 0, i: inv.iron ? 1 : 0}});
     inv.bread = inv.potion = 0; inv.leather = inv.iron = false; armor = null;
   }
-  if(inv.wood || inv.stone || inv.ore || inv.hide){
-    dropSword({x: player.x - 0.8, z: player.z, type: 'bag', yaw: Math.random()*6.28, lean: 0, items: {w: inv.wood, s: inv.stone, o: inv.ore, h: inv.hide}});
-    inv.wood = inv.stone = inv.ore = inv.hide = 0;
+  if(inv.wood || inv.stone || inv.ore || inv.hide || inv.arrows){
+    dropSword({x: player.x - 0.8, z: player.z, type: 'bag', yaw: Math.random()*6.28, lean: 0, items: {w: inv.wood, s: inv.stone, o: inv.ore, h: inv.hide, a: inv.arrows}});
+    inv.wood = inv.stone = inv.ore = inv.hide = inv.arrows = 0;
   }
   closeInv();
   if(chatOpen) closeChat();
@@ -1634,7 +1678,7 @@ function snapshot(){
     ver: 2, hp: Math.round(hp.v), weapon: weapon || '', gameT: r(gameT, 10), dh: dragon.dead ? 0 : Math.round(dragon.hp),
     digs: digLog, cracks: cracks.map(k => [r(k.x), r(k.z), r(k.seed)]),
     swords: worldSwords.map(w => [r(w.x), r(w.z), w.type, r(w.yaw), r(w.lean), w.items || 0]),
-    inv: [inv.bread, inv.potion, inv.leather ? 1 : 0, inv.iron ? 1 : 0, inv.wood, inv.stone, inv.ore, inv.hide], armor: armor || '',
+    inv: [inv.bread, inv.potion, inv.leather ? 1 : 0, inv.iron ? 1 : 0, inv.wood, inv.stone, inv.ore, inv.hide, inv.arrows], armor: armor || '',
   };
 }
 function saveNow(){
@@ -1657,9 +1701,9 @@ function applySave(st){
   resetQuests();
   if(st.q){ quest.i = st.q.i | 0; quest.state = st.q.s === 'active' || st.q.s === 'ready' ? st.q.s : 'none'; quest.base = st.q.b | 0; monsterKills = st.q.k | 0; updateQuestHud(); }
   setGold(st.gold | 0);
-  { const a = st.inv || []; inv.bread = a[0] | 0; inv.potion = a[1] | 0; inv.leather = !!a[2]; inv.iron = !!a[3]; inv.wood = a[4] | 0; inv.stone = a[5] | 0; inv.ore = a[6] | 0; inv.hide = a[7] | 0; armor = ARMOR[st.armor] && inv[st.armor] ? st.armor : null; }
+  { const a = st.inv || []; inv.bread = a[0] | 0; inv.potion = a[1] | 0; inv.leather = !!a[2]; inv.iron = !!a[3]; inv.wood = a[4] | 0; inv.stone = a[5] | 0; inv.ore = a[6] | 0; inv.hide = a[7] | 0; inv.arrows = a[8] | 0; armor = ARMOR[st.armor] && inv[st.armor] ? st.armor : null; }
   weapon = SWORD_TYPES[st.weapon] ? st.weapon : null;
-  if(weapon) wpnEl.textContent = SWORD_TYPES[weapon].name + ' (' + SWORD_TYPES[weapon].dmg + ' dmg)';
+  if(weapon) updWpn();
   hp.v = Math.max(1, Math.min(MAX_HP, st.hp || MAX_HP)); hp.last = -1e9;
   gameT = st.gameT || 0;
   dragon.hp = st.dh > 0 ? Math.min(DRAGON_HP, st.dh) : DRAGON_HP; dragon.dead = false;
@@ -1755,18 +1799,21 @@ const villagers = [], vRespawn = [];
 let monsterKills = 0, talkTarget = null, dlg = null, vSeq = 0;
 const quest = {i: 0, state: 'none', base: 0};
 let gold = 0;
-const inv = {bread: 0, potion: 0, leather: false, iron: false, wood: 0, stone: 0, ore: 0, hide: 0};
+function updWpn(){ wpnEl.textContent = weapon ? SWORD_TYPES[weapon].name + ' (' + SWORD_TYPES[weapon].dmg + ' dmg)' + (weapon === 'bow' ? ' · ' + inv.arrows + ' arrow' + (inv.arrows === 1 ? '' : 's') : '') : 'Fist'; }
+const inv = {arrows: 0, bread: 0, potion: 0, leather: false, iron: false, wood: 0, stone: 0, ore: 0, hide: 0};
 let armor = null;                                                    // 'leather' | 'iron' | null
 const ARMOR = {leather: {name: 'Leather Armour', cut: 0.2}, iron: {name: 'Iron Armour', cut: 0.4}};
 const BREAD_HEAL = 30;
 const invEl = document.getElementById('inv');
 let invOpen = false;
 function invText(note){
-  const w = weapon ? SWORD_TYPES[weapon].name + ' (' + SWORD_TYPES[weapon].dmg + ' dmg)' : 'Fists';
-  const L = ['Weapon: ' + w, 'Armour: ' + (armor ? ARMOR[armor].name + ' (' + Math.round(ARMOR[armor].cut*100) + '% less damage)' : 'none'), 'Gold: ' + gold, 'Materials: wood ' + inv.wood + ', stone ' + inv.stone + ', iron ore ' + inv.ore + ', leather ' + inv.hide, ''];
+  const w = weapon ? SWORD_TYPES[weapon].name + ' (' + SWORD_TYPES[weapon].dmg + ' dmg)' + (weapon === 'bow' ? ', ' + inv.arrows + ' arrows' : '') : 'Fists';
+  void 0;
+  const L = ['Weapon: ' + w, 'Armour: ' + (armor ? ARMOR[armor].name + ' (' + Math.round(ARMOR[armor].cut*100) + '% less damage)' : 'none'), 'Gold: ' + gold, 'Arrows: ' + inv.arrows, 'Materials: wood ' + inv.wood + ', stone ' + inv.stone + ', iron ore ' + inv.ore + ', leather ' + inv.hide, ''];
   L.push('1.  Bread x' + inv.bread + '  — eat (+' + BREAD_HEAL + ' health)');
   L.push('2.  Health Potion x' + inv.potion + '  — drink (full health)');
-  for(const [i, k] of ['leather', 'iron'].entries()) L.push((3 + i) + '.  ' + ARMOR[k].name + (inv[k] ? (armor === k ? '  — worn (press to take off)' : '  — put on') : '  — not owned'));
+  if(!inv.leather && !inv.iron) L.push('No armour owned');
+  else for(const [i, k] of ['leather', 'iron'].entries()) if(inv[k]) L.push((3 + i) + '.  ' + ARMOR[k].name + (armor === k ? '  — worn (press to take off)' : '  — put on'));
   return L.join('\n') + (note ? '\n\n' + note : '');
 }
 function renderInv(note){ invEl.innerHTML = '<b>Inventory</b>' + invText(note).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '<i>Press 1–4 to use  ·  E to close</i>'; }
@@ -1853,8 +1900,8 @@ function planFlee(v){
   if(best < 0 || bd < dp(here) - 0.5){ v.state = 'idle'; v.timer = 1.5; v.moving = false; return; }   // cornered: crouch and wait
   v.path = [v.node, best]; v.pi = 1; v.state = 'walk'; v.speed = V_RUN;
 }
-function hitVillager(v){
-  const dmg = weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE;
+function hitVillager(v, dmgO){
+  const dmg = dmgO || (weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE);
   if(mpClient() && v.role !== 'child'){
     v.hitT = gameT; v.showUntil = gameT + 4; v.hp = Math.max(1, v.hp - dmg);
     if(dlg && dlg.v === v) closeDlg();
@@ -1904,6 +1951,7 @@ const SHOP = [
   {name: 'Stone Sword', price: 45, sword: 'stone'},
   {name: 'Iron Sword', price: 80, sword: 'iron'},
   {name: 'Steel Sword', price: 150, sword: 'steel'},
+  {name: 'Bow', price: 45, sword: 'bow'},
 ];
 function shopText(note){
   return SHOP.map((it, i) => (i + 1) + '.  ' + it.name + (it.sword ? ' (' + SWORD_TYPES[it.sword].dmg + ' dmg)' : ' (' + it.note + ')') + ' — ' + it.price + ' gold').join('\n') + '\n\nYou have ' + gold + ' gold.   Bread: ' + inv.bread + '   Potions: ' + inv.potion + (note ? '   ' + note : '');
@@ -1913,13 +1961,14 @@ const CRAFT = [
   {name: 'Stone Sword', sword: 'stone', cost: {wood: 3, stone: 4}},
   {name: 'Iron Sword', sword: 'iron', cost: {wood: 2, ore: 5}},
   {name: 'Steel Sword', sword: 'steel', cost: {wood: 2, ore: 10, stone: 4}},
+  {name: 'Arrows (x5)', arrows: 5, cost: {stone: 1, wood: 1}},
   {name: 'Leather Armour', armor: 'leather', cost: {hide: 6}},
   {name: 'Iron Armour', armor: 'iron', cost: {ore: 12, hide: 3}},
 ];
 const MATN = {wood: 'wood', stone: 'stone', ore: 'iron ore', hide: 'leather'};
 const costStr = c => Object.keys(c).map(k => c[k] + ' ' + MATN[k]).join(', ');
 function craftText(note){
-  return CRAFT.map((it, i) => (i + 1) + '.  ' + it.name + (it.sword ? ' (' + SWORD_TYPES[it.sword].dmg + ' dmg)' : ' (' + Math.round(ARMOR[it.armor].cut*100) + '% less damage)') + ' — ' + costStr(it.cost)).join('\n')
+  return CRAFT.map((it, i) => (i + 1) + '.  ' + it.name + (it.sword ? ' (' + SWORD_TYPES[it.sword].dmg + ' dmg)' : it.arrows ? '' : ' (' + Math.round(ARMOR[it.armor].cut*100) + '% less damage)') + ' — ' + costStr(it.cost)).join('\n')
     + '\n\nYou have: wood ' + inv.wood + ', stone ' + inv.stone + ', iron ore ' + inv.ore + ', leather ' + inv.hide + (note ? '\n' + note : '');
 }
 function openCraft(v){ dlg = {v, lines: [craftText()], i: 0, craft: true}; renderDlg(); }
@@ -1927,13 +1976,18 @@ function craftItem(n){
   const it = CRAFT[n]; if(!it || !dlg || !dlg.craft) return;
   const say = m => { dlg.lines = [craftText(m)]; renderDlg(); };
   if(it.armor && inv[it.armor]) return say('You already own that.');
+  if(it.arrows){
+    for(const k in it.cost) if(inv[k] < it.cost[k]) return say("You don't have the materials for that.");
+    for(const k in it.cost) inv[k] -= it.cost[k];
+    inv.arrows += it.arrows; updWpn(); return say('Orrin hands you five arrows.');
+  }
   if(it.sword && weapon === it.sword) return say('You already carry one of those.');
   for(const k in it.cost) if(inv[k] < it.cost[k]) return say("You don't have the materials for that.");
   for(const k in it.cost) inv[k] -= it.cost[k];
   if(it.armor){ inv[it.armor] = true; if(!armor || ARMOR[it.armor].cut > ARMOR[armor].cut) armor = it.armor; }
   else {
     if(weapon) dropSword({x: player.x, z: player.z, type: weapon, yaw: Math.random()*6.28, lean: 0.1});
-    weapon = it.sword; wpnEl.textContent = SWORD_TYPES[weapon].name + ' (' + SWORD_TYPES[weapon].dmg + ' dmg)';
+    weapon = it.sword; updWpn();
   }
   say('Orrin hammers it out. "Fine work, if I say so myself."');
 }
@@ -1949,7 +2003,7 @@ function buyItem(n){
   else if(it.armor){ inv[it.armor] = true; if(!armor || ARMOR[it.armor].cut > ARMOR[armor].cut) armor = it.armor; }
   else {
     if(weapon) dropSword({x: player.x, z: player.z, type: weapon, yaw: Math.random()*6.28, lean: 0.1});
-    weapon = it.sword; wpnEl.textContent = SWORD_TYPES[weapon].name + ' (' + SWORD_TYPES[weapon].dmg + ' dmg)';
+    weapon = it.sword; updWpn();
   }
   dlg.lines = [shopText('Pleasure doing business!')]; renderDlg();
 }
@@ -2240,7 +2294,7 @@ function updateVillagerUI(cx, cy, cz, cR_, cU_, cF_, aspect){
   }
 }
 function resetQuests(){
-  setGold(0); inv.bread = inv.potion = 0; inv.leather = inv.iron = false; inv.wood = inv.stone = inv.ore = inv.hide = 0; armor = null;
+  setGold(0); inv.bread = inv.potion = 0; inv.leather = inv.iron = false; inv.wood = inv.stone = inv.ore = inv.hide = inv.arrows = 0; armor = null;
   monsterKills = 0; quest.i = 0; quest.state = 'none'; quest.base = 0; closeDlg();
   for(let i = villagers.length - 1; i >= 0; i--) if(villagers[i].role === 'child'){ if(villagers[i].tag) villagers[i].tag.remove(); if(villagers[i].bar) villagers[i].bar.remove(); villagers.splice(i, 1); }
   updateQuestHud();
@@ -2452,7 +2506,7 @@ function updatePickup(dt){
       const w = pickTarget;
       takeSword(w);
       if(w.type === 'bag'){
-        const it = w.items || {}; inv.bread += it.b | 0; inv.potion += it.p | 0; inv.wood += it.w | 0; inv.stone += it.s | 0; inv.ore += it.o | 0; inv.hide += it.h | 0; if(it.l) inv.leather = true; if(it.i) inv.iron = true;
+        const it = w.items || {}; inv.bread += it.b | 0; inv.potion += it.p | 0; inv.wood += it.w | 0; inv.stone += it.s | 0; inv.ore += it.o | 0; inv.hide += it.h | 0; inv.arrows += it.a | 0; updWpn(); if(it.l) inv.leather = true; if(it.i) inv.iron = true;
         if(!armor){ armor = inv.iron ? 'iron' : inv.leather ? 'leather' : null; }
         pickTarget = null; pickProg = 0; addChat('', 'You pick up the bag.', true); return;
       }
@@ -2460,7 +2514,7 @@ function updatePickup(dt){
       weapon = w.type;
       pickTarget = null; pickProg = 0;
       const t = SWORD_TYPES[weapon];
-      wpnEl.textContent = t.name + ' (' + t.dmg + ' dmg)';
+      updWpn();
     }
   } else pickProg = Math.max(0, pickProg - dt*2);
   if(ridden){
@@ -2667,6 +2721,7 @@ function mpEvent(from, o){
     } break;
     case 'df': { const f = fireballs.find(q => q.id === o.id); if(f && !f.deflected) deflectFireball(f, true); break; }
     case 'mk': monsterReward(); break;
+    case 'ar': if(typeof o.x === 'number') arrows.push({x: o.x, y: o.y, z: o.z, vx: o.vx, vy: o.vy, vz: o.vz, life: 0, mine: false}); break;
     case 'tc': { ensureTrees(); const t = trees[o.i | 0]; if(t){ t.down = performance.now() + (+o.ms || 240000); t.hp = TREE_HP; } break; }
     case 'trees': ensureTrees(); for(const a of o.a || []){ const t = trees[a[0]]; if(t) t.down = performance.now() + a[1]; } break;
     case 'sw+': if(Array.isArray(o.w) && swOk(o.w[2]) && !worldSwords.some(q => Math.abs(q.x - o.w[0]) < 0.02 && Math.abs(q.z - o.w[1]) < 0.02 && q.type === o.w[2])) worldSwords.push(swDec(o.w)); break;
@@ -2798,7 +2853,9 @@ function drawPlayers(sunNow){
     part(0,2.17,0.04, 0.52,0.5,0.5, skin, 0,0,0, 0);
     part(-0.64,1.47,0, 0.26,0.95,0.28, c, -0.64,1.95,0, -sw*0.8);
     part( 0.64,1.47,0, 0.26,0.95,0.28, c,  0.64,1.95,0, atk);
-    if(armed){
+    if(armed && SWORD_TYPES[r.w].bow){
+      part(0.64, 0.4, 0.15, 0.06, 1.3, 0.06, SWORD_TYPES.bow.blade, 0.64,1.95,0, atk);
+    } else if(armed){
       const t = SWORD_TYPES[r.w];
       part(0.64, 0.45, 0, 0.06, 1.05, 0.03, t.blade, 0.64,1.95,0, atk);   // blade, in the right hand
       part(0.64, 1.00, 0, 0.34, 0.07, 0.07, t.guard, 0.64,1.95,0, atk);   // crossguard
@@ -3278,6 +3335,7 @@ function frame(now){
 
   updateDragon(dt);
   updateFireballs(dt);
+  updateArrows(dt);
   if(knockX || knockZ){                                           // flung through the air by the dragon
     if(player.grounded){ knockX = knockZ = 0; }
     else { const kx2 = player.x + knockX*dt, kz2 = player.z + knockZ*dt; if(!villageBlocked(kx2, kz2, 0.4)){ player.x = kx2; player.z = kz2; } const f = Math.exp(-0.4*dt); knockX *= f; knockZ *= f; }
@@ -3421,6 +3479,7 @@ function frame(now){
     drawVillagers();
     drawDragon(cx, cz);
     drawFireballs();
+    drawArrows();
   }
 
   updateTags(cx, cy, cz, [cyw, 0, sy], [-sy*sp, cp, cyw*sp], [sy*cp, sp, -cyw*cp], aspect);
@@ -3440,7 +3499,13 @@ function frame(now){
     gl.uniform3f(fOff, ox, oy, oz); gl.uniform3f(fSize, sx, sy, sz); gl.uniform3f(fCol, r, g, b);
     gl.drawArrays(gl.TRIANGLES, 0, 36);
   };
-  if(weapon){
+  if(weapon === 'bow'){
+    const pull = Math.min(1, punch.t < 1 ? punch.t*2 : 0);
+    box(fxp - 0.02, fyp + 0.02, fzp + 0.18, 0.03, 0.62, 0.03, 0.45, 0.3, 0.15);                         // stave
+    box(fxp - 0.02, fyp + 0.34, fzp + 0.12, 0.03, 0.1, 0.12, 0.45, 0.3, 0.15); box(fxp - 0.02, fyp - 0.30, fzp + 0.12, 0.03, 0.1, 0.12, 0.45, 0.3, 0.15);
+    box(fxp - 0.02, fyp + 0.02, fzp + 0.02 - 0.1*pull, 0.006, 0.62, 0.006, 0.9, 0.9, 0.85);            // string
+    if(inv.arrows > 0) box(fxp - 0.02, fyp + 0.02, fzp + 0.28 - 0.1*pull, 0.012, 0.012, 0.6, 0.75, 0.75, 0.8);
+  } else if(weapon){
     const t = SWORD_TYPES[weapon], b = t.blade, g = t.guard;
     box(fxp + 0.02, fyp,        fzp + 0.30, 0.016, 0.10, 0.80, b[0], b[1], b[2]);   // blade
     box(fxp + 0.02, fyp,        fzp - 0.12, 0.030, 0.24, 0.045, g[0], g[1], g[2]);  // crossguard
