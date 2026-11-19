@@ -46,9 +46,11 @@
   .sv button.del{padding:7px 10px;border-color:rgba(255,255,255,.55)}
   .sv button.del.sure{background:rgba(200,40,40,.75);border-color:#fff}
   #savelist .none{text-align:center;font:500 14px system-ui,sans-serif;opacity:.85;padding:6px}
-  #mpcode{font:500 16px system-ui,sans-serif;width:120px;padding:10px 12px;border:2px solid rgba(255,255,255,.7);
+  #mpcode,#mppw,#mppw2{font:500 16px system-ui,sans-serif;width:120px;padding:10px 12px;border:2px solid rgba(255,255,255,.7);
           border-radius:6px;background:rgba(0,0,0,.2);color:#fff;text-align:center}
-  #mpcode::placeholder{color:rgba(255,255,255,.7)}
+  #mpcode::placeholder,#mppw::placeholder,#mppw2::placeholder{color:rgba(255,255,255,.7)}
+  #mpcreds{display:flex;gap:8px}
+  #mpcreds input{width:120px}
   #mp{font:600 16px system-ui,sans-serif;padding:10px 24px;border:2px solid #fff;border-radius:6px;
       background:rgba(0,0,0,.25);color:#fff;cursor:pointer}
   #mp:hover:not(:disabled){background:rgba(0,0,0,.45)}
@@ -114,6 +116,7 @@
   #inv .ib,#trade .ib{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:2px solid rgba(255,255,255,.55)}
   #inv .ib small,#trade .ib small{opacity:.6;font-size:11px;text-align:center;flex:1;padding:0 8px}
   .slot.no{opacity:.4} .slot.own{opacity:.3;border-style:dashed}
+  #trade .tb{margin-left:10px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:10px;border:1px solid rgba(255,255,255,.3);color:#ddd;cursor:pointer;vertical-align:middle} #trade .tb.on{background:#ffd666;color:#222;border-color:#ffd666}
   #trade .th{font-weight:700;font-size:14px;margin:0 0 10px;color:#ffd666}
   #trade .tg{color:#ffd34d;font-weight:700;font-size:12px;white-space:nowrap}
   #invgold{position:absolute;left:16px;bottom:-24px;color:#ffd34d;font-weight:700;font-size:12px}
@@ -150,7 +153,7 @@
 <div id="start"><h1>Untitled Game</h1>
   <div id="saves"><div id="savelist"></div><div class="mprow"><button id="newgame">+ New game</button><button id="savesback">Back</button></div></div>
   <div id="home"><button id="play">Play game</button>
-  <div class="mprow"><input id="mpcode" placeholder="username" maxlength="16" autocomplete="off" spellcheck="false"><button id="mp" disabled>Multiplayer…</button></div><div id="mpmsg"></div></div></div>
+  <div id="mpcreds"><input id="mpcode" placeholder="username" maxlength="16" autocomplete="off" spellcheck="false"><input id="mppw" type="password" placeholder="password" maxlength="40" autocomplete="current-password"><input id="mppw2" type="password" placeholder="repeat (new name)" maxlength="40" autocomplete="new-password"></div><div class="mprow"><button id="mp" disabled>Multiplayer…</button></div><div id="mpmsg"></div></div></div>
 <div id="pause"><h2 id="ptitle"></h2>
   <div id="pmain"><button id="pback">Back to game</button><br><br><button id="pbinds">Settings</button><br><br><button id="pmenu">Return to menu</button></div>
   <div id="settings"><button id="sbinds">Change keybinds</button><button id="sfast"></button><button id="sback">Back</button></div>
@@ -371,6 +374,97 @@ function groundAt(x, z){
 }
 
 
+// ---- the hidden spring shrine, built into the south face of a great mountain ----
+// The terrain is a heightfield (no caves), so the chamber is carved flat into the mountain, walled and roofed with boxes,
+// and the mountain is raised around it so from outside it is just rock with a doorway facing south.
+const SHRINE = (function(){
+  const S = {ok: false, x: 0, z: 0, F: 0, ax: 0, az: 0, boxes: [], colliders: [], lit: -1e9};
+  let best = null, bs = -1e9;
+  for(let z = -540; z <= 540; z += 6) for(let x = -540; x <= 540; x += 6){
+    const r = Math.hypot(x, z); if(r < 240 || r > 540) continue;
+    const F0 = heightAt(x, z); if(F0 < 8 || F0 > 90) continue;
+    let ok = true, minB = 1e9, minS = 1e9, apron = 0;
+    for(let dz = -34; dz <= -18 && ok; dz += 4) for(let dx = -18; dx <= 18; dx += 4){
+      if(waterLevelAt(x + dx, z + dz) > -999){ ok = false; break; }
+      minB = Math.min(minB, heightAt(x + dx, z + dz));
+    }
+    if(!ok || minB - F0 < 20) continue;
+    for(let dz = -16; dz <= 0; dz += 4) for(const dx of [-16, 16]) minS = Math.min(minS, heightAt(x + dx, z + dz));
+    for(let dz = 0; dz <= 20 && ok; dz += 4) for(let dx = -10; dx <= 10; dx += 4){
+      if(waterLevelAt(x + dx, z + dz) > -999){ ok = false; break; }
+      apron = Math.max(apron, Math.abs(heightAt(x + dx, z + dz) - F0));
+    }
+    if(!ok || apron > 9) continue;
+    const sc = (minB - F0) + Math.min(minS - F0, 20) - Math.max(0, apron - 6)*2;
+    if(sc > bs){ bs = sc; best = [x, z, F0]; }
+  }
+  if(!best) return S;
+  const cx = best[0], cz = best[1], F = Math.round(best[2]*2)/2, R = F + 7.8;
+  S.ok = true; S.x = cx; S.z = cz; S.F = F; S.ax = cx; S.az = cz - 10.5;
+  // carve: flat floor and doorstep, mountain raised round the walls
+  const i0 = Math.floor((cx - 70)/CELL), i1 = Math.ceil((cx + 70)/CELL), j0 = Math.floor((cz - 60)/CELL), j1 = Math.ceil((cz + 80)/CELL);
+  for(let j = j0; j <= j1; j++) for(let i = i0; i <= i1; i++){
+    const lx = i*CELL - cx, lz = j*CELL - cz, q = ((j & (N-1))*N + (i & (N-1)))*4;
+    const hO = heights[q];
+    const dRect = Math.hypot(Math.max(0, Math.abs(lx) - 9), Math.max(0, -16 - lz, lz - 8));
+    const m = 1 - sstep(0, 18, dRect);
+    const hm = hO + (Math.max(hO, R) - hO)*m;
+    const wM = (1 - sstep(8.5, 10, Math.abs(lx)))*sstep(-17.5, -16, lz)*(1 - sstep(24, 36, lz));
+    const wA = sstep(6.5, 8, lz)*(1 - sstep(0, 12, Math.max(0, Math.abs(lx) - 11)))*(1 - sstep(0, 12, Math.max(0, lz - 24)));
+    const w = Math.max(wM, wA);
+    if(w <= 0 && m <= 0) continue;
+    heights[q] = hm*(1 - w) + F*w;
+    heights[q + 1] = heights[q + 1]*(1 - w) + 0.5*w; if(m > 0.01 || w > 0.01) heights[q + 2] = -1000;
+  }
+  // chamber boxes (local coordinates: x east, z south, y up from the floor)
+  const ROCK = [0.50,0.49,0.47], DARK = [0.34,0.33,0.33], SLAB = [0.62,0.61,0.58], WATER = [0.12,0.55,0.78], CRY = [0.45,0.85,1.0], LAMP = [1.0,0.84,0.5];
+  const B = S.boxes, box = (o, sz, c, ex) => B.push(Object.assign({o, s: sz, c}, ex || {}));
+  box([0, 4, -15], [18, 8, 2], ROCK);                                    // back wall
+  for(const k of [-1, 1]){
+    box([k*8, 4, -4], [2, 8, 24], ROCK);                                 // side walls
+    box([k*5.75, 4, 7], [6.5, 8, 2], ROCK);                              // either side of the doorway
+    box([k*3.0, 3.6, 8.5], [0.9, 7.2, 0.9], DARK);                       // doorway pillars
+    box([k*3.0, 7.4, 8.5], [0.5, 0.5, 0.5], CRY, {emis: 1, glow: true});
+    box([k*4.9, 0.06, -5], [3.6, 0.12, 14], WATER, {emis: 0.6, glow: true});      // the spring, in two pools beside the path
+    box([k*3.0, 0.2, -5], [0.4, 0.4, 14.4], SLAB); box([k*6.85, 0.2, -5], [0.3, 0.4, 14.4], SLAB);
+    for(const z of [-12, -5, 2]){ box([k*6.7, 3.2, z], [0.4, 0.5, 0.4], LAMP, {emis: 1, glow: true}); box([k*6.7, 2.8, z], [0.15, 0.4, 0.15], DARK); }
+  }
+  box([0, 7, -4], [18, 2, 24], ROCK);                                    // roof, flush with the mountain top
+  box([0, 6.1, 8.5], [6, 0.25, 0.9], DARK);                              // lintel
+  box([0, 0.03, -1.5], [4.6, 0.06, 22], SLAB);                           // path from the door to the altar
+  box([0, 0.2, -10.5], [7, 0.4, 5], SLAB);                               // altar platform
+  box([0, 1.0, -10.5], [1.6, 1.2, 1.6], DARK); box([0, 1.64, -10.5], [1.1, 0.1, 1.1], SLAB);
+  box([0, 1.72, -10.5], [0.6, 0.06, 0.6], CRY, {emis: 0.9, glow: true, altar: true});
+  for(const k of [-1, 1]) box([k*2.6, 1.3, -10.5], [0.5, 2.6, 0.5], DARK), box([k*2.6, 2.75, -10.5], [0.4, 0.3, 0.4], CRY, {emis: 1, glow: true});
+  // 2D colliders (x0, z0, x1, z1), absolute
+  const C = (x0, z0, x1, z1) => S.colliders.push([cx + x0, cz + z0, cx + x1, cz + z1]);
+  C(-9, -16, 9, -14); C(-9, -16, -7, 8); C(7, -16, 9, 8); C(-9, 6, -2.5, 8); C(2.5, 6, 9, 8);
+  C(-3.45, 8.05, -2.55, 8.95); C(2.55, 8.05, 3.45, 8.95);
+  return S;
+})();
+const shrineHit = (x, z, r) => { for(const c of SHRINE.colliders) if(x > c[0] - r && x < c[2] + r && z > c[1] - r && z < c[3] + r) return true; return false; };
+// the shrine and the rock around it cannot be dug
+const shrineProtected = (x, z) => SHRINE.ok && Math.abs(x - SHRINE.x) < 26 && z > SHRINE.z - 24 && z < SHRINE.z + 38;
+let shrineMsgT = 0;
+function shrinePush(){
+  if(!SHRINE.ok) return;
+  const r = 0.4;
+  for(const c of SHRINE.colliders){
+    if(player.x > c[0] - r && player.x < c[2] + r && player.z > c[1] - r && player.z < c[3] + r){
+      const l = player.x - (c[0] - r), rr = (c[2] + r) - player.x, t = player.z - (c[1] - r), bt = (c[3] + r) - player.z, m = Math.min(l, rr, t, bt);
+      if(m === l) player.x = c[0] - r - 0.01; else if(m === rr) player.x = c[2] + r + 0.01; else if(m === t) player.z = c[1] - r - 0.01; else player.z = c[3] + r + 0.01;
+    }
+  }
+}
+const altarReady = () => SHRINE.ok && dragon.dead && inv.core > 0 && !dead && Math.hypot(player.x - SHRINE.ax, player.z - SHRINE.az) < 3.2 && Math.abs(player.y - SHRINE.F) < 3;
+const altarNear = () => SHRINE.ok && dragon.dead && !dead && Math.hypot(player.x - SHRINE.ax, player.z - SHRINE.az) < 3.2 && Math.abs(player.y - SHRINE.F) < 3;
+let altarProg = 0;
+function placeCore(){
+  SHRINE.lit = performance.now();
+  addChat('', 'You set the Dragon Core on the altar. The spring flares with light...', true);
+  reviveDragon();
+}
+
 // ---- the village in the centre of the island ----
 // Buildings are described in local boxes (door on the +z side, ridge along x) and turned to face their street.
 const VILLAGE = (function(){
@@ -563,7 +657,7 @@ const worldSwords = [];
     for(let dj = -W; dj <= W && top; dj++) for(let di = -W; di <= W; di++){
       if(heights[((((j+dj) & (N-1))*N) + ((i+di) & (N-1)))*4] > h){ top = false; break; }
     }
-    if(top) cand.push({x: i*CELL, z: j*CELL, h});
+    if(top && !(SHRINE.ok && Math.abs(i*CELL - SHRINE.x) < 40 && Math.abs(j*CELL - SHRINE.z) < 50)) cand.push({x: i*CELL, z: j*CELL, h});
   }
   cand.sort((a, b) => b.h - a.h);
   const wrap = d => d - PERIOD*Math.round(d/PERIOD);
@@ -1170,7 +1264,7 @@ addEventListener('keydown', e => {
   if(e.code === binds.pickup && !e.repeat){
     if(invOpen){ closeInv(); return; }
     if(talkKey()) return;
-    if(!pickTarget && !ridden){ openInv(); return; }
+    if(!pickTarget && !ridden && !altarReady()){ openInv(); return; }
   }
   if(e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   keys[e.code] = true;
@@ -1204,6 +1298,7 @@ function ensureTrees(){
     const x = (i + 0.15 + 0.7*hash2(i, j + 101))*TREE_CELL, z = (j + 0.15 + 0.7*hash2(i + 55, j))*TREE_CELL;
     const wx = x - PERIOD*Math.round(x/PERIOD), wz = z - PERIOD*Math.round(z/PERIOD);
     if(Math.hypot(wx, wz) < 80) continue;                                         // keep the village and its surroundings clear
+    if(SHRINE.ok && Math.abs(x - SHRINE.x) < 40 && z > SHRINE.z - 30 && z < SHRINE.z + 46) continue;
     const h = heightAt(x, z);
     if(h < 2 || h > 44 || waterDepthAt(x, z) > 0.05) continue;
     if(Math.abs(heightAt(x + 2, z) - h) > 2 || Math.abs(heightAt(x, z + 2) - h) > 2) continue;
@@ -1281,6 +1376,7 @@ function canMove(nx, nz){
   const dist = Math.hypot(nx - player.x, nz - player.z);
   if(treeBlocked(nx, nz) && !treeBlocked(player.x, player.z)) return false;
   if(villageBlocked(nx, nz, 0.4) && !villageBlocked(player.x, player.z, 0.4)) return false;
+  if(shrineHit(nx, nz, 0.4) && !shrineHit(player.x, player.z, 0.4)) return false;
   return groundAt(nx, nz) - player.y <= Math.max(0.03, dist*MAX_SLOPE);
 }
 
@@ -1329,6 +1425,7 @@ function sendDigsTo(id){ if(trees){ const now = performance.now(), a = trees.fil
   mpSend({t: 'sws', up: performance.now(), a: worldSwords.map(swEnc)}, id);
    for(let i = 0; i < digLog.length; i += 80) mpSend({t: 'digs', a: digLog.slice(i, i + 80)}, id); }
 function breakArea(cx, cz, ph, replay, noUpload){
+  if(shrineProtected(cx, cz)) return;
   const r3 = v => Math.round(v*1000)/1000;
   cx = r3(((cx % PERIOD) + PERIOD) % PERIOD);
   cz = r3(((cz % PERIOD) + PERIOD) % PERIOD);
@@ -1484,6 +1581,7 @@ function doPunch(){
     if(snakeHit(x, y, z)){ applyDragonDamage(weapon ? SWORD_TYPES[weapon].dmg : PUNCH_DAMAGE, true); return; }
     { const tr = treeAtPoint(x, y, z); if(tr){ chopTree(tr); return; } }
     if(y < heightAt(x, z)){
+      if(shrineProtected(x, z)){ if(performance.now() - shrineMsgT > 2500){ shrineMsgT = performance.now(); addChat('', 'The ancient stone does not yield to your fist.', true); } return; }
       const idx = cracks.findIndex(k => Math.hypot(wrapD(x, k.x), wrapD(z, k.z)) < CRACK_LINK);
       if(idx >= 0){                       // already cracked -> break it open
         const k = cracks.splice(idx, 1)[0];
@@ -1792,12 +1890,36 @@ function snapshot(){
   };
 }
 // ---- multiplayer profiles: personal progress is stored under the player's name (Firebase, with a local copy) ----
-let profKey = '', profReady = false, profLast = '';
+let profKey = '', profReady = false, profLast = '', profPw = null;
+const toHex = u8 => [...u8].map(b => b.toString(16).padStart(2, '0')).join('');
+async function pwHash(pw, saltHex, key){
+  const enc = new TextEncoder(), km = await crypto.subtle.importKey('raw', enc.encode(key + ':' + pw), 'PBKDF2', false, ['deriveBits']);
+  const salt = Uint8Array.from(saltHex.match(/../g).map(h => parseInt(h, 16)));
+  return toHex(new Uint8Array(await crypto.subtle.deriveBits({name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256'}, km, 256)));
+}
+// returns {ok, msg, first}. An account with no password yet (new name, or a name saved before passwords existed) gets the one typed here.
+async function authProfile(pw, pw2){
+  const key = profName(myName);
+  let remote = null, local = null, reached = false;
+  try { local = JSON.parse(localStorage.getItem('ug-prof-' + key) || 'null'); } catch(e){}
+  try { remote = await Promise.race([mpRoom.profile.load(key), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]); reached = true; } catch(e){}
+  const rec = remote || (reached ? null : local);
+  if(!reached && !(local && local.pw)) return {ok: false, msg: 'Could not reach the server to check your password. Try again.'};
+  if(rec && rec.pw && rec.pw.s && rec.pw.h){
+    const h = await pwHash(pw, rec.pw.s, key);
+    if(h !== rec.pw.h) return {ok: false, msg: 'Wrong password for "' + myName + '".'};
+    profPw = rec.pw; return {ok: true, first: false};
+  }
+  if(pw !== pw2) return {ok: false, msg: rec ? '"' + myName + '" has no password yet: type one in both boxes to claim it.' : 'New name "' + myName + '": type your password again in the second box to create the account.'};
+  const salt = toHex(crypto.getRandomValues(new Uint8Array(16)));
+  profPw = {s: salt, h: await pwHash(pw, salt, key)};
+  return {ok: true, first: true};
+}
 const profName = n => n.toLowerCase().replace(/[.#$\[\]\/\s]+/g, '_').slice(0, 40);
 function profileState(){
   return {t: Date.now(), name: myName, gold, hp: Math.round(hp.v), weapons: inv.weapons, held: [held.L || '', held.R || ''], armor: armor || '',
           q: {i: quest.i, s: quest.state, b: quest.base, k: monsterKills},
-          inv: invArr()};
+          inv: invArr(), ...(profPw ? {pw: profPw} : {})};
 }
 function applyProfile(st){
   resetQuests();
@@ -1994,7 +2116,7 @@ const MATS = {
   ore: {name: 'Iron Ore', icon: '🔩', kind: 'mat', info: 'Crafting material. Found deep underground and dropped by monsters.'},
   hide: {name: 'Leather', icon: '🟫', kind: 'mat', info: 'Crafting material. Dropped by monsters.'},
   crystal: {name: 'Light Crystal', icon: '💎', kind: 'mat', info: 'Dropped by the Dragon of Light.\nOrrin can craft it into a Light Sword or a Magic Staff.'},
-  core: {name: 'Dragon Core', icon: '🔮', kind: 'mat', info: 'The heart of the Dragon of Light.\nGive it to the village elder to revive the dragon.'},
+  core: {name: 'Dragon Core', icon: '🔮', kind: 'mat', info: 'The heart of the Dragon of Light.\nCarry it to the hidden spring shrine in the mountains to revive the dragon.'},
   leather: {name: 'Leather Armour', icon: '🦺', kind: 'armor', info: 'Blocks 20% of all damage.'},
   iron: {name: 'Iron Armour', icon: '🛡️', kind: 'armor', info: 'Blocks 40% of all damage.'},
 };
@@ -2240,17 +2362,19 @@ const CRAFT = [
 const MATN = {wood: 'wood', stone: 'stone', ore: 'iron ore', hide: 'leather', crystal: 'light crystal'};
 const costStr = c => Object.keys(c).map(k => c[k] + ' ' + MATN[k]).join(', ');
 const tradeEl = document.getElementById('trade');
-const tradeItems = () => dlg.shop ? SHOP : CRAFT;
-const tradeIcon = it => it.sword ? weaponIcon(it.sword) : it.armor ? MATS[it.armor].icon : it.food ? MATS[it.food].icon : MATS.arrows.icon;
+const SELL = [{name: 'Stone', mat: 'stone', price: 1}, {name: 'Wood', mat: 'wood', price: 2}, {name: 'Iron Ore', mat: 'ore', price: 3}, {name: 'Leather', mat: 'hide', price: 3}, {name: 'Light Crystal', mat: 'crystal', price: 20}, {name: 'Dirt', mat: 'dirt', price: 1}];   // what Greg pays, per piece
+const tradeItems = () => dlg.shop ? (dlg.sell ? SELL : SHOP) : CRAFT;
+const tradeIcon = it => it.mat ? MATS[it.mat].icon : it.sword ? weaponIcon(it.sword) : it.armor ? MATS[it.armor].icon : it.food ? MATS[it.food].icon : MATS.arrows.icon;
 const tradeOwned = it => !!((it.sword && inv.weapons.includes(it.sword)) || (it.armor && inv[it.armor]));
 // once Orrin's forge is finished he charges a quarter less (rounded, never below 1)
 const forgeDone = () => sq.i >= SQD.length;
 function costOf(it){ if(!forgeDone()) return it.cost; const c = {}; for(const k in it.cost) c[k] = Math.max(1, Math.round(it.cost[k]*0.75)); return c; }
-function tradeCan(it){ if(tradeOwned(it)) return false; if(dlg.shop) return gold >= it.price; for(const k in it.cost) if(inv[k] < costOf(it)[k]) return false; return true; }
+function tradeCan(it){ if(it.mat) return inv[it.mat] > 0; if(tradeOwned(it)) return false; if(dlg.shop) return gold >= it.price; for(const k in it.cost) if(inv[k] < costOf(it)[k]) return false; return true; }
 function tradeInfoHTML(i){
   const it = tradeItems()[i]; if(!it) return '';
   const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
   let d = it.sword ? weaponInfo(it.sword) : it.armor ? MATS[it.armor].info : it.food ? MATS[it.food].info.split('\n').pop() : 'Five arrows for the bow.';
+  if(it.mat) return '<b>' + it.name + '</b><br>Greg pays ' + it.price + ' gold for each.<small>You have ' + inv[it.mat] + '<br>Click to sell one · right-click to sell all</small>';
   let foot;
   if(tradeOwned(it)) foot = 'You already have this.';
   else if(dlg.shop) foot = 'Price: ' + it.price + ' gold (you have ' + gold + ')';
@@ -2260,22 +2384,33 @@ function tradeInfoHTML(i){
 function renderTrade(){
   const items = tradeItems(), shop = dlg.shop;
   const mats = 'wood ' + inv.wood + ' · stone ' + inv.stone + ' · ore ' + inv.ore + ' · leather ' + inv.hide + ' · crystal ' + inv.crystal;
-  tradeEl.innerHTML = '<div id="trx">✕</div><div class="th">' + (shop ? "Greg's Shop" : "Orrin's Forge") + '</div><div class="ig">' +
-    items.map((it, i) => '<div class="slot' + (tradeOwned(it) ? ' own' : tradeCan(it) ? '' : ' no') + '" data-i="' + i + '">' + tradeIcon(it) + (shop ? '<span class="n">' + it.price + 'g</span>' : it.arrows ? '<span class="n">x' + it.arrows + '</span>' : '') + '</div>').join('') +
-    '</div><div class="ib">' + (shop ? '<span class="tg">● ' + gold + ' gold</span>' : '') + '<small>' + (dlg.msg || (shop ? 'Click an item to buy it' : mats)) + '</small></div>';
+  tradeEl.innerHTML = '<div id="trx">✕</div><div class="th">' + (shop ? "Greg's Shop" : "Orrin's Forge") + (shop ? '<span class="tb' + (dlg.sell ? '' : ' on') + '" data-tab="buy">Buy</span><span class="tb' + (dlg.sell ? ' on' : '') + '" data-tab="sell">Sell</span>' : '') + '</div><div class="ig">' +
+    items.map((it, i) => '<div class="slot' + (tradeOwned(it) ? ' own' : tradeCan(it) ? '' : ' no') + '" data-i="' + i + '">' + tradeIcon(it) + (it.mat ? '<span class="n">+' + it.price + 'g</span>' : shop ? '<span class="n">' + it.price + 'g</span>' : it.arrows ? '<span class="n">x' + it.arrows + '</span>' : '') + '</div>').join('') +
+    '</div><div class="ib">' + (shop ? '<span class="tg">● ' + gold + ' gold</span>' : '') + '<small>' + (dlg.msg || (dlg.sell ? 'Click to sell one, right-click to sell all' : shop ? 'Click an item to buy it' : mats)) + '</small></div>';
 }
 function openTrade(v, kind){
   dlg = {v, lines: [''], i: 0, msg: ''}; dlg[kind] = true; holding = false;
   renderDlg();
   lockIgnore = performance.now() + 700; if(document.pointerLockElement) document.exitPointerLock();
 }
-tradeEl.addEventListener('contextmenu', e => e.preventDefault());
+tradeEl.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const sl = e.target.closest('.slot'); if(sl && dlg && dlg.sell){ sellItem(+sl.dataset.i, true); itipEl.innerHTML = tradeInfoHTML(+sl.dataset.i); }
+});
+function sellItem(n, all){
+  const it = SELL[n]; if(!it || !dlg || !dlg.sell) return;
+  const have = inv[it.mat], k = all ? have : Math.min(1, have);
+  if(!k){ dlg.msg = "You don't have any " + it.name.toLowerCase() + " to sell."; renderDlg(); return; }
+  inv[it.mat] -= k; setGold(gold + k*it.price);
+  dlg.msg = 'Sold ' + k + ' ' + it.name.toLowerCase() + ' for ' + k*it.price + ' gold.'; renderDlg();
+}
 tradeEl.addEventListener('click', e => {
   if(!dlg || !(dlg.shop || dlg.craft)) return;
   if(e.target.closest('#trx')){ closeDlg(); return; }
+  const tb = e.target.closest('.tb'); if(tb){ dlg.sell = tb.dataset.tab === 'sell'; dlg.msg = ''; itipEl.style.display = 'none'; renderDlg(); return; }
   const sl = e.target.closest('.slot'); if(!sl) return;
   const i = +sl.dataset.i;
-  if(dlg.shop) buyItem(i); else craftItem(i);
+  if(dlg.sell) sellItem(i, false); else if(dlg.shop) buyItem(i); else craftItem(i);
   itipEl.innerHTML = tradeInfoHTML(i);
 });
 tradeEl.addEventListener('mouseover', e => { const sl = e.target.closest('.slot'); if(sl && dlg){ itipEl.innerHTML = tradeInfoHTML(+sl.dataset.i); itipEl.style.display = 'block'; } });
@@ -2301,7 +2436,7 @@ function craftItem(n){
 addEventListener('keydown', e => { if(dlg && dlg.craft && !chatOpen && !menuOpen && /^(Digit|Numpad)[1-9]$/.test(e.code)){ e.preventDefault(); craftItem(+e.code.slice(-1) - 1); } });
 function openShop(v){ openTrade(v, 'shop'); }
 function buyItem(n){
-  const it = SHOP[n]; if(!it || !dlg || !dlg.shop) return;
+  const it = SHOP[n]; if(!it || !dlg || !dlg.shop || dlg.sell) return;
   const say = m => { dlg.msg = m; renderDlg(); };
   if(it.sword && inv.weapons.includes(it.sword)) return say("You already have one of those.");
   if(it.armor && inv[it.armor]) return say("You already own that.");
@@ -2426,13 +2561,28 @@ function dragonNear(){
   best = Math.min(best, Math.hypot(x - (h[0] + fx*1.2), y - (h[1] + 0.3), z - (h[2] + fz*1.2)) - 2.2);
   return best <= SWORD_REACH;
 }
-function placeChild(){
-  // Pip wanders off to the far side of the northern mountains, near the foot of the range
-  const mk = (x, z) => { const c = makeVillager({name: 'Pip', role: 'child', title: 'a lost boy', shirt: [0.3,0.6,0.85], pants: [0.45,0.3,0.2], hair: [0.7,0.45,0.2], skin: 0, scale: 0.6}, x, z, {state: 'lost', met: true}); c.warned = false; return c; };
-  for(let t = 0; t < 600; t++){
-    const th = (Math.random() - 0.5)*1.1, r = 500 + Math.random()*120, x = Math.sin(th)*r, z = -Math.cos(th)*r, h = heightAt(x, z);
-    if(h > 2 && h < 40 && waterDepthAt(x, z) < 0.1 && Math.abs(heightAt(x + 3, z) - h) < (t < 400 ? 1.5 : 3) && Math.abs(heightAt(x, z + 3) - h) < (t < 400 ? 1.5 : 3)) return mk(x, z);
+let _pipSpot = null;
+function pipSpot(){
+  if(_pipSpot) return _pipSpot;
+  const W = 8; let best = null;
+  for(let j = 0; j < N; j += 2) for(let i = 0; i < N; i += 2){
+    const x = i*CELL, z = j*CELL, dx = x - PERIOD*Math.round(x/PERIOD), dz = z - PERIOD*Math.round(z/PERIOD), r = Math.hypot(dx, dz);
+    if(r < 150 || r > 400) continue;
+    const h = heights[(j*N + i)*4]; if(h < 40) continue;
+    if(SHRINE.ok && Math.hypot(dx - SHRINE.x, dz - SHRINE.z) < 100) continue;
+    let top = true;
+    for(let dj = -W; dj <= W && top; dj++) for(let di = -W; di <= W; di++) if(heights[((((j + dj) & (N-1))*N) + ((i + di) & (N-1)))*4] > h){ top = false; break; }
+    if(!top || waterDepthAt(dx, dz) > 0.05) continue;
+    if(!best || r < best.r) best = {x: dx, z: dz, r, h};
   }
+  return _pipSpot = best || {x: 0, z: -300, r: 300, h: 0, none: true};
+}
+const pipDir = () => { const p = pipSpot(); return compass(p.x, p.z); };
+function placeChild(){
+  // Pip is stuck at the top of a mountain not far from the village
+  const mk = (x, z) => { const c = makeVillager({name: 'Pip', role: 'child', title: 'a lost boy', shirt: [0.3,0.6,0.85], pants: [0.45,0.3,0.2], hair: [0.7,0.45,0.2], skin: 0, scale: 0.6}, x, z, {state: 'lost', met: true}); c.warned = false; return c; };
+  const p = pipSpot();
+  if(!p.none) return mk(p.x, p.z);
   for(let t = 0; t < 120; t++){
     const a = Math.random()*6.283, r = 130 + Math.random()*180, x = Math.cos(a)*r, z = Math.sin(a)*r, h = heightAt(x, z);
     if(h > 2 && h < 45 && waterDepthAt(x, z) < 0.1) return mk(x, z);
@@ -2457,6 +2607,7 @@ function menuFor(v, again){
   ]);
   if(v.role === 'shop') return convNode(v, again ? say : v.met2 ? "Welcome back! Have a look." : "Welcome, traveller! Greg's the name, and every price here is an honest one.", [
     {t: 'Look at the wares', do: () => openShop(v)},
+    {t: 'Sell your materials', do: () => { openShop(v); dlg.sell = true; renderDlg(); }},
     topic('Ask about the shop', () => "Bread, potions, armour and a decent bow: if I don't have it, you probably don't need it."),
   ]);
   const base = [topic(TOPIC[v.role] || 'Chat', () => talkLines(v, true).join('\n')), small];
@@ -2465,12 +2616,12 @@ function menuFor(v, again){
 }
 function pipOption(v){
   const back = {t: 'Ask something else', go: () => menuFor(v, true)};
-  if(pip.state === 'none') return {t: 'Ask why she looks so worried', go: () => convNode(v, ["Oh, traveller... it's my little boy, Pip. He ran off chasing a butterfly and hasn't come home.", "He was last seen heading north, towards the mountains. Please, will you look for him?", "It isn't much, but I can pay 50 gold and give you two loaves of bread."], [
+  if(pip.state === 'none') return {t: 'Ask why she looks so worried', go: () => convNode(v, ["Oh, traveller... it's my little boy, Pip. He ran off chasing a butterfly and hasn't come home.", "He was last seen climbing the mountain to the " + pipDir() + ", not far from the village. Please, will you look for him?", "It isn't much, but I can pay 50 gold and give you two loaves of bread."], [
     {t: 'Promise to find Pip', do: () => { pip.state = 'active'; placeChild(); addChat('', 'New quest: Find Pip', true); updateQuestHud(); }, go: () => convNode(v, "Thank you, thank you! Please hurry.", [])},
     {t: 'Not right now', go: () => menuFor(v, true)}])};
   if(pip.state === 'active') return {t: 'Ask about Pip', go: () => {
     const c = villagers.find(x => x.role === 'child');
-    return convNode(v, c && c.state === 'lost' ? "He went north, into the mountains. Perhaps " + near10(Math.hypot(c.x - player.x, c.z - player.z)) + " m from here, at the foot of the far side. Please find him!" : c ? "You have found him! Please bring him back to the village." : "Please find my Pip!", [back]);
+    return convNode(v, c && c.state === 'lost' ? "He climbed the mountain to the " + pipDir() + ". Perhaps " + near10(Math.hypot(c.x - player.x, c.z - player.z)) + " m from here, right at the top. Please find him!" : c ? "You have found him! Please bring him back to the village." : "Please find my Pip!", [back]);
   }};
   if(pip.state === 'ready') return {t: 'Tell her Pip is home', do: () => {
     hp.v = MAX_HP; hp.last = gameT; setGold(gold + 50); inv.bread += 2; pip.state = 'done'; updateQuestHud();
@@ -2480,7 +2631,10 @@ function pipOption(v){
 }
 function elderMenu(v, say, back, topic){
   const o = [], d = questDef(quest.i);
-  if(inv.core > 0 && dragon.dead) o.push({t: 'Show him the Dragon Core', go: () => ({say: ["That glow... Is that the Dragon Core? I never thought I would see one with my own eyes.", "The Dragon of Light guarded this island long ago. Give me the core and I can call it back from the dark.", "But be warned, it will return as mighty as ever. Stand back!"], opts: [{t: 'Hand over the core', do: () => reviveDragon(), end: true}, {t: 'Not yet', go: () => menuFor(v, true)}]})});
+  if(inv.core > 0 && dragon.dead){
+    const where = () => { const dx = SHRINE.x - player.x, dz = SHRINE.z - player.z; return 'It lies ' + near10(Math.hypot(dx, dz)) + ' metres to the ' + compass(dx, dz) + ' of where we stand. The mountain is huge: look for a doorway in its southern face.'; };
+    o.push({t: 'Show him the Dragon Core', go: () => ({say: ["That glow... Is that the Dragon Core? I never thought I would see one with my own eyes.", "The Dragon of Light cannot be called back from here. Long ago our ancestors hid a spring shrine deep inside a mountain, a hidden spring with an altar made for this very core.", SHRINE.ok ? where() : "It lies far in the mountains.", "Carry the core to the altar and the dragon will rise again, as mighty as ever. Be ready."], opts: [{t: 'Ask where the shrine is again', go: () => convNode(v, where(), [back])}, {t: 'Ask something else', go: () => menuFor(v, true)}]})});
+  }
   if(quest.state === 'ready' && d) o.push({t: "Tell him you've finished the task", do: () => {
     hp.v = MAX_HP; hp.last = gameT; addChat('', 'Quest complete: ' + d.title + '!', true);
     if(d.gold){ setGold(gold + d.gold); addChat('', 'The elder rewards you with ' + d.gold + ' gold.', true); }
@@ -2766,9 +2920,9 @@ function questRows(){
     let next = '—';
     if(pip.state === 'none') next = 'Talk to Tilda the baker';
     else if(pip.state === 'ready') next = 'Return to Tilda';
-    else if(pip.state === 'active') next = c && c.state === 'follow' ? 'Bring Pip back to the village' : c ? 'Find Pip, ' + near10(Math.hypot(c.x - player.x, c.z - player.z)) + ' m ' + compass(c.x - player.x, c.z - player.z) + ' (look for the light beam)' : 'Find Pip in the northern mountains';
+    else if(pip.state === 'active') next = c && c.state === 'follow' ? 'Bring Pip back to the village' : c ? 'Find Pip, ' + near10(Math.hypot(c.x - player.x, c.z - player.z)) + ' m ' + compass(c.x - player.x, c.z - player.z) + ' (look for the light beam)' : 'Find Pip on the mountain to the ' + pipDir();
     const [st, cl] = stat(done, pip.state, '');
-    R.push({title: 'Find Pip', desc: "Tilda's little boy Pip wandered off towards the mountains to the north. Find him and bring him home.", by: 'Tilda the baker', st, cl, reward: '50 gold + 2 bread + full health', next, fin: done}); }
+    R.push({title: 'Find Pip', desc: "Tilda's little boy Pip climbed a mountain to the " + pipDir() + " of the village and cannot get down. Find him at the summit and bring him home.", by: 'Tilda the baker', st, cl, reward: '50 gold + 2 bread + full health', next, fin: done}); }
   SQD.forEach((d, j) => {
     const done = j < sq.i, cur = j === sq.i, state = cur ? sq.state : 'none';
     const next = done ? '—' : !cur ? 'Finish "' + SQD[j - 1].title + '" first' : state === 'none' ? 'Talk to Orrin and ask about work' : 'Bring Orrin: ' + sqNeedStr(d, true);
@@ -2780,8 +2934,9 @@ function questRows(){
 function renderQlog(){
   qlogT = performance.now();
   const esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const rows = questRows().filter(r => r.cl !== 'lock');                  // quests nobody has given you yet stay hidden
   qlogEl.innerHTML = '<h3>Quests<small>' + keyName(binds.quests) + ' to close</small></h3><table><tr><th>Quest</th><th>Status</th><th>Reward</th><th>Next objective</th></tr>' +
-    questRows().map(r => '<tr' + (r.fin ? ' class="fin"' : '') + '><td><b>' + esc(r.title) + '</b><small>' + esc(r.by) + ': ' + esc(r.desc) + '</small></td><td class="st ' + r.cl + '">' + esc(r.st) + '</td><td>' + esc(r.reward) + '</td><td>' + esc(r.next) + '</td></tr>').join('') + '</table>';
+    (rows.length ? rows.map(r => '<tr' + (r.fin ? ' class="fin"' : '') + '><td><b>' + esc(r.title) + '</b><small>' + esc(r.by) + ': ' + esc(r.desc) + '</small></td><td class="st ' + r.cl + '">' + esc(r.st) + '</td><td>' + esc(r.reward) + '</td><td>' + esc(r.next) + '</td></tr>').join('') : '<tr><td colspan="4"><small>No quests yet. Talk to the villagers to find some.</small></td></tr>') + '</table>';
 }
 function resetQuests(){
   setGold(0); inv.bread = inv.potion = 0; inv.leather = inv.iron = false; inv.dirt = inv.wood = inv.stone = inv.ore = inv.hide = inv.arrows = 0; armor = null; pip.state = 'none';
@@ -3004,6 +3159,10 @@ const promptEl = document.getElementById('prompt'), ptxt = document.getElementBy
       pfill = document.getElementById('pfill'), wpnEl = document.getElementById('wpn');
 let pickTarget = null, pickProg = 0;
 function updatePickup(dt){
+  if(altarReady()){
+    if(down('pickup')){ altarProg += dt/1.4; if(altarProg >= 1){ altarProg = 0; placeCore(); } }
+    else altarProg = Math.max(0, altarProg - dt*2);
+  } else altarProg = 0;
   let best = null, bd = PICK_R;
   if(!dead) for(const w of worldSwords){
     const d = Math.hypot(wrapD(w.x, player.x), wrapD(w.z, player.z));
@@ -3029,6 +3188,14 @@ function updatePickup(dt){
   if(ridden){
     promptEl.style.display = 'block';
     ptxt.textContent = 'Press ' + keyName(binds.jump) + ' to jump off the dragon';
+    pfill.style.width = '0%';
+  } else if(altarReady()){
+    promptEl.style.display = 'block';
+    ptxt.textContent = 'Hold ' + keyName(binds.pickup) + ' to place the Dragon Core on the altar';
+    pfill.style.width = Math.min(100, altarProg*100) + '%';
+  } else if(altarNear() && !pickTarget){
+    promptEl.style.display = 'block';
+    ptxt.textContent = 'An empty altar. Something glowing belongs here.';
     pfill.style.width = '0%';
   } else if(pickTarget){
     const t = SWORD_TYPES[pickTarget.type];
@@ -3185,17 +3352,30 @@ async function connectWebRTC(code){
   const off = t => { btn.textContent = 'Multiplayer unavailable'; msg.textContent = t; };
   const wire = join => {
     btn.disabled = false; btn.textContent = 'Multiplayer';
+    try { const m = sessionStorage.getItem('ug-msg'); if(m){ msg.textContent = m; sessionStorage.removeItem('ug-msg'); } } catch(e){}
     btn.addEventListener('click', async () => {
       applyName();
       const code = 'main';
+      const pw = document.getElementById('mppw').value, pw2 = document.getElementById('mppw2').value;
+      if(nameEl.value.trim()){
+        if(pw.length < 4){ msg.textContent = 'Choose a password of at least 4 characters for "' + myName + '".'; return; }
+        if(!(window.crypto && crypto.subtle)){ msg.textContent = 'Passwords need a secure (https) page.'; return; }
+      }
       btn.disabled = true; btn.textContent = 'Joining…'; msg.textContent = '';
       try {
         mpRoom = await join(code);
         mpStart = performance.now();
         mpCode = code;
         mpInfo.style.display = 'block';
+        let first = false;
+        if(nameEl.value.trim()){
+          const a = await authProfile(pw, pw2);
+          if(!a.ok){ try { sessionStorage.setItem('ug-msg', a.msg); } catch(e){} location.reload(); return; }
+          first = a.first;
+        }
         startGame();
         loadProfile().then(r => {
+          if(first) saveProfile(true);
           if(r === 'loaded') addChat('', 'Welcome back, ' + myName + '! Your progress was restored.', true);
           else if(r === 'new') addChat('', 'New player ' + myName + ': your progress will be saved under this name.', true);
           else addChat('', 'Set a name to have your progress saved between visits.', true);
@@ -3761,6 +3941,21 @@ function drawFireballs(){
 }
 
 
+function drawShrine(sunNow, camX, camZ){
+  const S = SHRINE; if(!S.ok || Math.hypot(wrapD(S.x, camX), wrapD(S.z, camZ)) > 420) return;
+  gl.uniform1f(mTint, 0); gl.uniformMatrix3fv(mPm, false, I3); gl.uniform1f(mRx, 0); gl.uniform1f(mYaw, 0);
+  gl.uniform3f(mBase, S.x, S.F, S.z);
+  const lit = Math.max(0, 1 - (performance.now() - S.lit)/6000);
+  for(const q of S.boxes){
+    const o = q.o, s = q.s, c = q.c;
+    gl.uniform1f(mVis, q.emis ? 1 : Math.max(0.55, shadowAt(S.x, S.z + 20, sunNow)));
+    gl.uniform3f(mOff, o[0], o[1], o[2]); gl.uniform3f(mSize, s[0], s[1], s[2]); gl.uniform3f(mCol, c[0], c[1], c[2]);
+    gl.uniform3f(mPivot, o[0], o[1], o[2]);
+    gl.uniform1f(mEmis, q.glow ? Math.min(1.4, (q.emis + (q.altar ? lit : 0)*0.6)*(0.8 + 0.2*Math.sin(animT*3 + o[0]*2 + o[2]))) : 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 36);
+  }
+  gl.uniform1f(mEmis, 0); gl.uniform1f(mVis, 1);
+}
 function drawVillage(sunNow, camX, camZ){
   if(Math.hypot(camX, camZ) > 600) return;
   const V = VILLAGE, gy = VH, I = I3;
@@ -3929,7 +4124,7 @@ function frame(now){
       else if(canMove(player.x, nz)) player.z = nz;
     }
   }
-  villagePush();
+  villagePush(); shrinePush();
 
   staffCd = Math.max(0, staffCd - dt);
   const hi = held[hand], foodHeld = hi === 'bread' || hi === 'potion';
@@ -4041,6 +4236,7 @@ function frame(now){
     drawSwords(sun);
     drawTrees(sun, cx, cz);
     drawVillage(sun, cx, cz);
+    drawShrine(sun, cx, cz);
     drawPlayers(sun);
     drawMonsters();
     drawVillagers();
