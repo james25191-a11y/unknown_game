@@ -1759,7 +1759,53 @@ function snapshot(){
     inv: [inv.bread, inv.potion, inv.leather ? 1 : 0, inv.iron ? 1 : 0, inv.wood, inv.stone, inv.ore, inv.hide, inv.arrows, inv.crystal, inv.core], armor: armor || '',
   };
 }
+// ---- multiplayer profiles: personal progress is stored under the player's name (Firebase, with a local copy) ----
+let profKey = '', profReady = false, profLast = '';
+const profName = n => n.toLowerCase().replace(/[.#$\[\]\/\s]+/g, '_').slice(0, 40);
+function profileState(){
+  return {t: Date.now(), name: myName, gold, hp: Math.round(hp.v), weapons: inv.weapons, held: [held.L || '', held.R || ''], armor: armor || '',
+          q: {i: quest.i, s: quest.state, b: quest.base, k: monsterKills},
+          inv: [inv.bread, inv.potion, inv.leather ? 1 : 0, inv.iron ? 1 : 0, inv.wood, inv.stone, inv.ore, inv.hide, inv.arrows, inv.crystal, inv.core]};
+}
+function applyProfile(st){
+  resetQuests();
+  if(st.q){ quest.i = st.q.i | 0; quest.state = st.q.s === 'active' || st.q.s === 'ready' ? st.q.s : 'none'; quest.base = st.q.b | 0; monsterKills = st.q.k | 0; updateQuestHud(); }
+  setGold(st.gold | 0);
+  const a = st.inv || [];
+  inv.bread = a[0] | 0; inv.potion = a[1] | 0; inv.leather = !!a[2]; inv.iron = !!a[3]; inv.wood = a[4] | 0; inv.stone = a[5] | 0; inv.ore = a[6] | 0; inv.hide = a[7] | 0; inv.arrows = a[8] | 0; inv.crystal = a[9] | 0; inv.core = a[10] | 0;
+  armor = ARMOR[st.armor] && inv[st.armor] ? st.armor : null;
+  inv.weapons.length = 0; held.L = held.R = null;
+  for(const t of Array.isArray(st.weapons) ? st.weapons : []) if(SWORD_TYPES[t] && !inv.weapons.includes(t)) inv.weapons.push(t);
+  if(Array.isArray(st.held)) for(const [k, v] of [['L', st.held[0]], ['R', st.held[1]]]) if(v && (inv.weapons.includes(v) || ((v === 'bread' || v === 'potion') && inv[v] > 0))) held[k] = v;
+  if(!held.L && !held.R && inv.weapons.length) held.L = inv.weapons[0];
+  syncWeapon();
+  if(st.hp > 0) hp.v = Math.min(MAX_HP, st.hp);
+}
+async function loadProfile(){
+  profKey = nameEl.value.trim() ? profName(myName) : '';
+  profReady = false;
+  if(!profKey) return 'none';
+  let local = null, remote = null, ok = false;
+  try { local = JSON.parse(localStorage.getItem('ug-prof-' + profKey) || 'null'); } catch(e){}
+  try { remote = await Promise.race([mpRoom.profile.load(profKey), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))]); ok = true; } catch(e){}
+  const best = remote && (!local || (remote.t || 0) >= (local.t || 0)) ? remote : local;
+  if(best) applyProfile(best);
+  profReady = ok || !!local;
+  profLast = JSON.stringify({...profileState(), t: 0});
+  return best ? 'loaded' : 'new';
+}
+function saveProfile(force){
+  if(!mpRoom || !profKey || !profReady || !started) return;
+  const o = profileState(), sig = JSON.stringify({...o, t: 0});
+  if(!force && sig === profLast) return;
+  profLast = sig;
+  try { localStorage.setItem('ug-prof-' + profKey, JSON.stringify(o)); } catch(e){}
+  if(mpRoom.profile) mpRoom.profile.save(profKey, o).catch(e => { if(!saveProfile.warned){ saveProfile.warned = true; addChat('', 'Could not save your progress online (' + (e.code || e.message) + '). It is kept in this browser only.', true); } });
+}
+addEventListener('pagehide', () => saveProfile(false));
+document.addEventListener('visibilitychange', () => { if(document.hidden) saveProfile(false); });
 function saveNow(){
+  if(mpRoom){ saveProfile(false); return; }
   if(!curSave || mpRoom || !started) return;
   if(!dead) curSave.state = snapshot();                         // while dead, keep the last living state
   curSave.played = Date.now();
@@ -1827,7 +1873,7 @@ document.getElementById('newgame').onclick = () => {
   saveNow();                                                     // appears in the list straight away
 };
 document.getElementById('savesback').onclick = () => { savesEl.style.display = 'none'; homeEl.style.display = 'flex'; };
-setInterval(() => { if(started && !paused && !dead) saveNow(); }, 8000);      // autosave
+setInterval(() => { if(started && mpRoom) saveProfile(false); else if(started && !paused && !dead) saveNow(); }, 5000);      // autosave
 addEventListener('pagehide', saveNow);
 document.addEventListener('visibilitychange', () => { if(document.hidden) saveNow(); });
 
@@ -2826,6 +2872,10 @@ async function connectWebRTC(code){
 
   const api = {
     myId: uid,
+    profile: {
+      async load(key){ const sn = await D.get(D.ref(db, 'profiles/' + key)); return sn.exists() ? sn.val() : null; },
+      save(key, o){ return D.set(D.ref(db, 'profiles/' + key), o); },
+    },
     send(o, to){
       const str = JSON.stringify(o);
       for(const [id, l] of links) if(l.evOpen && l.ev.readyState === 'open' && (to === undefined || to === null || to === id)) { try { l.ev.send(str); } catch(e){} }
@@ -2862,6 +2912,11 @@ async function connectWebRTC(code){
         mpCode = code;
         mpInfo.style.display = 'block';
         startGame();
+        loadProfile().then(r => {
+          if(r === 'loaded') addChat('', 'Welcome back, ' + myName + '! Your progress was restored.', true);
+          else if(r === 'new') addChat('', 'New player ' + myName + ': your progress will be saved under this name.', true);
+          else addChat('', 'Set a name to have your progress saved between visits.', true);
+        });
       } catch(e){
         btn.disabled = false; btn.textContent = 'Multiplayer';
         msg.textContent = 'Could not connect' + (e && (e.code || e.message) ? ': ' + (e.code || e.message) : '.');
