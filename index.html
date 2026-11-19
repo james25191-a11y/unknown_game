@@ -100,8 +100,8 @@
   .mbar i{display:block;height:100%;width:100%;background:#d33}
   #talk{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);width:min(560px,86vw);background:rgba(12,10,22,.82);color:#fff;border:1px solid rgba(255,255,255,.3);
         border-radius:8px;padding:12px 16px;font:15px/1.4 system-ui,sans-serif;display:none;pointer-events:none}
-  #inv{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(430px,92vw);background:rgba(14,12,24,.92);color:#fff;border:2px solid rgba(255,255,255,.55);border-radius:6px;padding:16px 16px 12px;font:13px system-ui,sans-serif;display:none;z-index:20}
-  #inv .ig{display:grid;grid-template-columns:repeat(5,66px);gap:9px;min-height:150px;align-content:start}
+  #inv,#trade{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(430px,92vw);background:rgba(14,12,24,.92);color:#fff;border:2px solid rgba(255,255,255,.55);border-radius:6px;padding:16px 16px 12px;font:13px system-ui,sans-serif;display:none;z-index:20}
+  #inv .ig,#trade .ig{display:grid;grid-template-columns:repeat(5,66px);gap:9px;min-height:150px;align-content:start}
   .slot,.hs{position:relative;width:66px;height:66px;border:2px solid rgba(255,255,255,.7);border-radius:8px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-size:30px;cursor:pointer;user-select:none;overflow:hidden}
   .slot:hover,.hs:hover{background:rgba(255,255,255,.16)}
   .slot.eq{border-color:#ffd666}
@@ -110,9 +110,12 @@
   .hs .k{position:absolute;left:4px;bottom:2px;font-size:9px;opacity:.7}
   .hs .cd{position:absolute;left:0;right:0;bottom:0;height:0;background:rgba(0,0,0,.6)}
   .hs .eb{position:absolute;left:0;bottom:0;height:5px;width:0;background:#6f6}
-  #invx{position:absolute;top:-13px;right:-13px;width:26px;height:26px;border-radius:50%;border:2px solid #fff;background:#14101f;color:#fff;text-align:center;line-height:22px;cursor:pointer;font-size:14px}
-  #inv .ib{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:2px solid rgba(255,255,255,.55)}
-  #inv .ib small{opacity:.6;font-size:11px;text-align:center;flex:1;padding:0 8px}
+  #invx,#trx{position:absolute;top:-13px;right:-13px;width:26px;height:26px;border-radius:50%;border:2px solid #fff;background:#14101f;color:#fff;text-align:center;line-height:22px;cursor:pointer;font-size:14px}
+  #inv .ib,#trade .ib{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:2px solid rgba(255,255,255,.55)}
+  #inv .ib small,#trade .ib small{opacity:.6;font-size:11px;text-align:center;flex:1;padding:0 8px}
+  .slot.no{opacity:.4} .slot.own{opacity:.3;border-style:dashed}
+  #trade .th{font-weight:700;font-size:14px;margin:0 0 10px;color:#ffd666}
+  #trade .tg{color:#ffd34d;font-weight:700;font-size:12px;white-space:nowrap}
   #invgold{position:absolute;left:16px;bottom:-24px;color:#ffd34d;font-weight:700;font-size:12px}
   #hotbar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:none;gap:12px;pointer-events:none}
   #hotbar .hs{width:58px;height:58px;pointer-events:none;background:rgba(0,0,0,.35)}
@@ -146,6 +149,7 @@
 <div id="inv"></div>
 <div id="hotbar"></div>
 <div id="itip"></div>
+<div id="trade" style="display:none"></div>
 <div id="lflash"></div>
 <div id="cutbars"><i></i><div>THE DRAGON OF LIGHT AWAKENS</div><i></i></div>
 <div id="talk"><b id="tname"></b><span id="ttext"></span><span id="thint"></span></div>
@@ -528,14 +532,14 @@ function villageBlocked(x, z, r){
 
 // ---- swords stabbed into the highest peaks ----
 const SWORD_TYPES = {
-  steel: {name: 'Steel Sword',       dmg: 42, blade: [0.80,0.84,0.90], guard: [0.55,0.58,0.64]},
-  iron:  {name: 'Iron Sword',        dmg: 34, blade: [0.42,0.44,0.48], guard: [0.30,0.31,0.34]},
-  stone: {name: 'Stone Sword',       dmg: 26, blade: [0.52,0.50,0.46], guard: [0.40,0.38,0.35]},
-  wood:  {name: 'Wooden Sword',      dmg: 22, blade: [0.58,0.40,0.22], guard: [0.42,0.28,0.15]},
-  rust:  {name: 'Rusted Iron Sword', dmg: 28, blade: [0.52,0.29,0.16], guard: [0.38,0.22,0.13]},
+  steel: {name: 'Steel Sword',       dmg: 37, blade: [0.80,0.84,0.90], guard: [0.55,0.58,0.64]},
+  iron:  {name: 'Iron Sword',        dmg: 29, blade: [0.42,0.44,0.48], guard: [0.30,0.31,0.34]},
+  stone: {name: 'Stone Sword',       dmg: 21, blade: [0.52,0.50,0.46], guard: [0.40,0.38,0.35]},
+  wood:  {name: 'Wooden Sword',      dmg: 17, blade: [0.58,0.40,0.22], guard: [0.42,0.28,0.15]},
+  rust:  {name: 'Rusted Iron Sword', dmg: 23, blade: [0.52,0.29,0.16], guard: [0.38,0.22,0.13]},
 };
 const SWORD_KEYS = Object.keys(SWORD_TYPES);
-SWORD_TYPES.light = {name: 'Light Sword', dmg: 65, glow: true, blade: [1.0,0.96,0.62], guard: [1.0,0.82,0.25]};
+SWORD_TYPES.light = {name: 'Light Sword', dmg: 60, glow: true, blade: [1.0,0.96,0.62], guard: [1.0,0.82,0.25]};
 SWORD_TYPES.staff = {name: 'Magic Staff', dmg: 80, staff: true, blade: [0.62,0.45,0.9], guard: [1.0,0.85,0.3]};
 SWORD_TYPES.bow = {name: 'Bow', dmg: 20, bow: true, blade: [0.45,0.30,0.15], guard: [0.75,0.7,0.55]};     // bought, never found on a peak
 const worldSwords = [];
@@ -1142,6 +1146,7 @@ addEventListener('keydown', e => {
   if(e.code === 'Escape'){
     if(chatOpen){ closeChat(); return; }
     if(invOpen){ closeInv(); return; }
+    if(dlg && (dlg.shop || dlg.craft)){ closeDlg(); return; }
     if(started && !dead && !rebinding) toggleMenu();
     return;
   }
@@ -1160,7 +1165,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup',   e => { keys[e.code] = false; });
 addEventListener('blur', () => { for(const k in keys) keys[k] = false; });
 
-canvas.addEventListener('click', () => { if(document.pointerLockElement !== canvas){ if(invOpen) closeInv(); else canvas.requestPointerLock(); } });
+canvas.addEventListener('click', () => { if(document.pointerLockElement !== canvas){ if(dlg && (dlg.shop || dlg.craft)) closeDlg(); else if(invOpen) closeInv(); else canvas.requestPointerLock(); } });
 let holding = false;
 addEventListener('mousedown', e => { if((e.button === 0 || e.button === 2) && document.pointerLockElement === canvas){ hand = e.button === 0 ? 'L' : 'R'; syncWeapon(); holding = true; } });   // left click = left hand, right click = right hand
 addEventListener('mouseup',   e => { if(e.button === 0 || e.button === 2) holding = false; });
@@ -1741,7 +1746,7 @@ document.getElementById('pback').onclick = closeMenu;
 document.getElementById('pbinds').onclick = showSettings;
 document.getElementById('pmenu').onclick = () => { saveNow(); location.reload(); };   // fresh start screen, leaves any multiplayer room
 document.addEventListener('pointerlockchange', () => {
-  if(document.pointerLockElement !== canvas && started && !dead && !menuOpen && !chatOpen && !invOpen && performance.now() > lockIgnore) openMenu();   // Esc releases the mouse: show the menu
+  if(document.pointerLockElement !== canvas && started && !dead && !menuOpen && !chatOpen && !invOpen && !(dlg && (dlg.shop || dlg.craft)) && performance.now() > lockIgnore) openMenu();   // Esc releases the mouse: show the menu
 });
 // ---- saved games (singleplayer): kept in this browser's localStorage ----
 const SAVE_KEY = 'ug-saves';
@@ -1929,7 +1934,7 @@ const quest = {i: 0, state: 'none', base: 0};
 let gold = 0;
 const held = {L: null, R: null};      // what is in each hand: a weapon type, or 'bread' / 'potion'
 let hand = 'L', eatT = 0, staffCd = 0, cut = null, invSig = '';
-function syncWeapon(){ const it = held[hand]; weapon = (it && SWORD_TYPES[it]) ? it : null; }
+function syncWeapon(){ const it = held[hand]; weapon = (it && SWORD_TYPES[it] && inv.weapons.includes(it)) ? it : null; }
 function updWpn(){ syncWeapon(); }
 const inv = {arrows: 0, bread: 0, potion: 0, leather: false, iron: false, wood: 0, stone: 0, ore: 0, hide: 0, crystal: 0, core: 0, weapons: []};
 let armor = null;                                                    // 'leather' | 'iron' | null
@@ -1969,9 +1974,9 @@ function weaponInfo(t){
   if(T.glow) d += '\nThe victim glows and loses 5 health every 2 seconds for 7 seconds.';
   return d;
 }
-function itemInfoHTML(id){
+function itemInfoHTML(id, isW){
   const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
-  if(SWORD_TYPES[id]) return '<b>' + SWORD_TYPES[id].name + '</b><br>' + esc(weaponInfo(id)) + '<small>Left-click: hold in left hand · Right-click: right hand</small>';
+  if(isW && SWORD_TYPES[id]) return '<b>' + SWORD_TYPES[id].name + '</b><br>' + esc(weaponInfo(id)) + '<small>Left-click: hold in left hand · Right-click: right hand</small>';
   const M = MATS[id]; if(!M) return '';
   return '<b>' + M.name + '</b><br>' + esc(M.info) + (M.kind === 'food' ? '<small>Left-click: left hand · Right-click: right hand</small>' : M.kind === 'armor' ? '<small>' + (armor === id ? 'Worn. Click to take off.' : 'Click to put on.') + '</small>' : '');
 }
@@ -1983,8 +1988,8 @@ function invList(){
   return out;
 }
 function slotHTML(it){
-  const M = MATS[it.id], eq = held.L === it.id || held.R === it.id || armor === it.id;
-  return '<div class="slot' + (eq ? ' eq' : '') + '" data-id="' + it.id + '"><span class="nm">' + (it.w ? '' : '') + '</span>' + (it.w ? weaponIcon(it.id) : M.icon) + (it.n > 1 || it.id === 'arrows' ? '<span class="n">' + it.n + '</span>' : '') + '</div>';
+  const M = MATS[it.id], eq = it.w ? (held.L === it.id || held.R === it.id) : (held.L === it.id || held.R === it.id || armor === it.id) && (it.id === 'bread' || it.id === 'potion' || armor === it.id);
+  return '<div class="slot' + (eq ? ' eq' : '') + '" data-id="' + it.id + '" data-w="' + (it.w ? 1 : 0) + '"><span class="nm">' + (it.w ? '' : '') + '</span>' + (it.w ? weaponIcon(it.id) : M.icon) + (it.n > 1 || it.id === 'arrows' ? '<span class="n">' + it.n + '</span>' : '') + '</div>';
 }
 function handHTML(h){
   const id = held[h], k = h === 'L' ? 'LMB' : 'RMB';
@@ -2017,10 +2022,10 @@ invEl.addEventListener('mousedown', e => {
   const sl = e.target.closest('.slot'); if(!sl) return;
   const id = sl.dataset.id, M = MATS[id];
   if(M && M.kind === 'armor'){ armor = armor === id ? null : id; }
-  else if(SWORD_TYPES[id] || (M && M.kind === 'food')){ if(e.button === 0) equipHand('L', id); else if(e.button === 2) equipHand('R', id); }
+  else if((sl.dataset.w === '1' && SWORD_TYPES[id]) || (M && M.kind === 'food')){ if(e.button === 0) equipHand('L', id); else if(e.button === 2) equipHand('R', id); }
   invSig = '';
 });
-invEl.addEventListener('mouseover', e => { const sl = e.target.closest('.slot'); if(sl){ itipEl.innerHTML = itemInfoHTML(sl.dataset.id); itipEl.style.display = 'block'; } });
+invEl.addEventListener('mouseover', e => { const sl = e.target.closest('.slot'); if(sl){ itipEl.innerHTML = itemInfoHTML(sl.dataset.id, sl.dataset.w === '1'); itipEl.style.display = 'block'; } });
 invEl.addEventListener('mousemove', e => { if(itipEl.style.display === 'block'){ itipEl.style.left = Math.min(innerWidth - 250, e.clientX + 14) + 'px'; itipEl.style.top = (e.clientY + 14) + 'px'; } });
 invEl.addEventListener('mouseout', e => { if(!e.relatedTarget || !e.relatedTarget.closest || !e.relatedTarget.closest('.slot')) itipEl.style.display = 'none'; });
 function consumeFood(id){
@@ -2080,14 +2085,14 @@ function spawnVillager(spec, atHome){
   const v = makeVillager(spec, n.x, n.z);
   v.node = ni; v.home = home; return v;
 }
-for(const sp of VSPECS) spawnVillager(sp, sp.role === 'shop');
+for(const sp of VSPECS) spawnVillager(sp, sp.role === 'shop' || sp.role === 'smith');
 
 const nodePos = (n, v) => n.kind !== 'street' ? [n.x, n.z] : (Math.abs(n.z) < 0.01 ? [n.x, n.z + v.lat] : [n.x + v.lat, n.z]);
 const compass = (dx, dz) => ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][((Math.round(Math.atan2(dx, -dz)/(Math.PI/4)) % 8) + 8) % 8];
 const near10 = d => Math.max(10, Math.round(d/10)*10);
 
 function planWander(v){
-  if(v.role === 'shop'){                                  // Greg minds his shop
+  if(v.role === 'shop' || v.role === 'smith'){            // Greg and Orrin stay in their buildings
     if(v.node !== v.home){ const p = VG.route(v.node, v.home); if(p.length > 1){ v.path = p; v.pi = 1; v.state = 'walk'; v.speed = V_WALK; return; } }
     v.timer = 4; return;
   }
@@ -2146,6 +2151,7 @@ function villagerDamage(v, dmg, threat, glow){
 // ---- conversation ----
 function openDlg(v, lines, onEnd, endLabel){ dlg = {v, lines, i: 0, onEnd, endLabel}; renderDlg(); }
 function renderDlg(){
+  if(dlg.shop || dlg.craft){ talkEl.style.display = 'none'; tradeEl.style.display = 'block'; renderTrade(); return; }
   tNameEl.textContent = dlg.v.name + (dlg.v.spec && dlg.v.spec.title ? ', ' + dlg.v.spec.title : '');
   tTextEl.textContent = dlg.lines[dlg.i];
   const last = dlg.i === dlg.lines.length - 1;
@@ -2164,9 +2170,6 @@ const SHOP = [
   {name: 'Steel Sword', price: 150, sword: 'steel'},
   {name: 'Bow', price: 45, sword: 'bow'},
 ];
-function shopText(note){
-  return SHOP.map((it, i) => (i + 1) + '.  ' + it.name + (it.sword ? ' (' + SWORD_TYPES[it.sword].dmg + ' dmg)' : ' (' + it.note + ')') + ' — ' + it.price + ' gold').join('\n') + '\n\nYou have ' + gold + ' gold.   Bread: ' + inv.bread + '   Potions: ' + inv.potion + (note ? '   ' + note : '');
-}
 const CRAFT = [
   {name: 'Stone Sword', sword: 'stone', cost: {wood: 3, stone: 4}},
   {name: 'Iron Sword', sword: 'iron', cost: {wood: 2, ore: 5}},
@@ -2179,14 +2182,49 @@ const CRAFT = [
 ];
 const MATN = {wood: 'wood', stone: 'stone', ore: 'iron ore', hide: 'leather', crystal: 'light crystal'};
 const costStr = c => Object.keys(c).map(k => c[k] + ' ' + MATN[k]).join(', ');
-function craftText(note){
-  return CRAFT.map((it, i) => (i + 1) + '.  ' + it.name + (it.sword ? ' (' + SWORD_TYPES[it.sword].dmg + ' dmg)' : it.arrows ? '' : ' (' + Math.round(ARMOR[it.armor].cut*100) + '% less damage)') + ' — ' + costStr(it.cost)).join('\n')
-    + '\n\nYou have: wood ' + inv.wood + ', stone ' + inv.stone + ', iron ore ' + inv.ore + ', leather ' + inv.hide + ', light crystal ' + inv.crystal + (note ? '\n' + note : '');
+const tradeEl = document.getElementById('trade');
+const tradeItems = () => dlg.shop ? SHOP : CRAFT;
+const tradeIcon = it => it.sword ? weaponIcon(it.sword) : it.armor ? MATS[it.armor].icon : it.food ? MATS[it.food].icon : MATS.arrows.icon;
+const tradeOwned = it => !!((it.sword && inv.weapons.includes(it.sword)) || (it.armor && inv[it.armor]));
+function tradeCan(it){ if(tradeOwned(it)) return false; if(dlg.shop) return gold >= it.price; for(const k in it.cost) if(inv[k] < it.cost[k]) return false; return true; }
+function tradeInfoHTML(i){
+  const it = tradeItems()[i]; if(!it) return '';
+  const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
+  let d = it.sword ? weaponInfo(it.sword) : it.armor ? MATS[it.armor].info : it.food ? MATS[it.food].info.split('\n').pop() : 'Five arrows for the bow.';
+  let foot;
+  if(tradeOwned(it)) foot = 'You already have this.';
+  else if(dlg.shop) foot = 'Price: ' + it.price + ' gold (you have ' + gold + ')';
+  else foot = 'Needs: ' + Object.keys(it.cost).map(k => it.cost[k] + ' ' + MATN[k] + ' (' + inv[k] + ')').join(', ');
+  return '<b>' + it.name + '</b><br>' + esc(d) + '<small>' + foot + (tradeOwned(it) ? '' : '<br>Click to ' + (dlg.shop ? 'buy' : 'craft') + '</small>');
 }
-function openCraft(v){ dlg = {v, lines: [craftText()], i: 0, craft: true}; renderDlg(); }
+function renderTrade(){
+  const items = tradeItems(), shop = dlg.shop;
+  const mats = 'wood ' + inv.wood + ' · stone ' + inv.stone + ' · ore ' + inv.ore + ' · leather ' + inv.hide + ' · crystal ' + inv.crystal;
+  tradeEl.innerHTML = '<div id="trx">✕</div><div class="th">' + (shop ? "Greg's Shop" : "Orrin's Forge") + '</div><div class="ig">' +
+    items.map((it, i) => '<div class="slot' + (tradeOwned(it) ? ' own' : tradeCan(it) ? '' : ' no') + '" data-i="' + i + '">' + tradeIcon(it) + (shop ? '<span class="n">' + it.price + 'g</span>' : it.arrows ? '<span class="n">x' + it.arrows + '</span>' : '') + '</div>').join('') +
+    '</div><div class="ib">' + (shop ? '<span class="tg">● ' + gold + ' gold</span>' : '') + '<small>' + (dlg.msg || (shop ? 'Click an item to buy it' : mats)) + '</small></div>';
+}
+function openTrade(v, kind){
+  dlg = {v, lines: [''], i: 0, msg: ''}; dlg[kind] = true; holding = false;
+  renderDlg();
+  lockIgnore = performance.now() + 700; if(document.pointerLockElement) document.exitPointerLock();
+}
+tradeEl.addEventListener('contextmenu', e => e.preventDefault());
+tradeEl.addEventListener('click', e => {
+  if(!dlg || !(dlg.shop || dlg.craft)) return;
+  if(e.target.closest('#trx')){ closeDlg(); return; }
+  const sl = e.target.closest('.slot'); if(!sl) return;
+  const i = +sl.dataset.i;
+  if(dlg.shop) buyItem(i); else craftItem(i);
+  itipEl.innerHTML = tradeInfoHTML(i);
+});
+tradeEl.addEventListener('mouseover', e => { const sl = e.target.closest('.slot'); if(sl && dlg){ itipEl.innerHTML = tradeInfoHTML(+sl.dataset.i); itipEl.style.display = 'block'; } });
+tradeEl.addEventListener('mousemove', e => { if(itipEl.style.display === 'block'){ itipEl.style.left = Math.min(innerWidth - 250, e.clientX + 14) + 'px'; itipEl.style.top = (e.clientY + 14) + 'px'; } });
+function openCraft(v){ openTrade(v, 'craft'); }
+tradeEl.addEventListener('mouseout', e => { if(!e.relatedTarget || !e.relatedTarget.closest || !e.relatedTarget.closest('.slot')) itipEl.style.display = 'none'; });
 function craftItem(n){
   const it = CRAFT[n]; if(!it || !dlg || !dlg.craft) return;
-  const say = m => { dlg.lines = [craftText(m)]; renderDlg(); };
+  const say = m => { dlg.msg = m; renderDlg(); };
   if(it.armor && inv[it.armor]) return say('You already own that.');
   if(it.arrows){
     for(const k in it.cost) if(inv[k] < it.cost[k]) return say("You don't have the materials for that.");
@@ -2201,20 +2239,25 @@ function craftItem(n){
   say('Orrin hammers it out. "Fine work, if I say so myself."');
 }
 addEventListener('keydown', e => { if(dlg && dlg.craft && !chatOpen && !menuOpen && /^(Digit|Numpad)[1-9]$/.test(e.code)){ e.preventDefault(); craftItem(+e.code.slice(-1) - 1); } });
-function openShop(v){ dlg = {v, lines: [shopText()], i: 0, shop: true}; renderDlg(); }
+function openShop(v){ openTrade(v, 'shop'); }
 function buyItem(n){
   const it = SHOP[n]; if(!it || !dlg || !dlg.shop) return;
-  if(gold < it.price){ dlg.lines = [shopText("Not enough gold, I'm afraid.")]; renderDlg(); return; }
-  if(it.sword && inv.weapons.includes(it.sword)){ dlg.lines = [shopText("You already have one of those.")]; renderDlg(); return; }
-  if(it.armor && inv[it.armor]){ dlg.lines = [shopText("You already own that.")]; renderDlg(); return; }
+  const say = m => { dlg.msg = m; renderDlg(); };
+  if(it.sword && inv.weapons.includes(it.sword)) return say("You already have one of those.");
+  if(it.armor && inv[it.armor]) return say("You already own that.");
+  if(gold < it.price) return say("Not enough gold, I'm afraid.");
   setGold(gold - it.price);
   if(it.food) inv[it.food]++;
   else if(it.armor){ inv[it.armor] = true; if(!armor || ARMOR[it.armor].cut > ARMOR[armor].cut) armor = it.armor; }
   else addWeapon(it.sword);
-  dlg.lines = [shopText('Pleasure doing business!')]; renderDlg();
+  say('Pleasure doing business!');
 }
 addEventListener('keydown', e => { if(dlg && dlg.shop && !chatOpen && !menuOpen && /^(Digit|Numpad)[1-9]$/.test(e.code)){ e.preventDefault(); buyItem(+e.code.slice(-1) - 1); } });
-function closeDlg(){ dlg = null; talkEl.style.display = 'none'; }
+function closeDlg(){
+  const t = dlg && (dlg.shop || dlg.craft);
+  dlg = null; talkEl.style.display = 'none';
+  if(t){ tradeEl.style.display = 'none'; itipEl.style.display = 'none'; lockIgnore = performance.now() + 700; if(started && !dead && !menuOpen && !chatOpen && !invOpen) canvas.requestPointerLock(); }
+}
 function talkKey(){
   if(dlg){
     if(dlg.i < dlg.lines.length - 1){ dlg.i++; renderDlg(); }
