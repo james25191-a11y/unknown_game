@@ -126,6 +126,15 @@
   #cutbars i{position:absolute;left:0;right:0;height:12%;background:#000} #cutbars i:first-child{top:0} #cutbars i:last-child{bottom:0}
   #cutbars div{position:absolute;left:0;right:0;bottom:17%;text-align:center;color:#fff;font:700 26px/1 Georgia,serif;letter-spacing:.18em;text-shadow:0 0 18px #9cf,0 2px 6px #000;opacity:0;transition:opacity 1.2s}
   #tname{display:block;font-weight:700;color:#ffd666;margin-bottom:4px}
+  #mmap{position:fixed;left:12px;top:78px;width:140px;height:140px;pointer-events:none;display:none;z-index:5}
+  #qlog{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(780px,94vw);max-height:84vh;overflow:auto;display:none;z-index:19;padding:12px 14px;border-radius:8px;background:rgba(12,10,22,.92);color:#fff;border:1px solid rgba(255,255,255,.35);font:12px/1.35 system-ui,sans-serif;pointer-events:none}
+  #qlog h3{margin:0 0 8px;font-size:14px;color:#ffd666;display:flex;justify-content:space-between} #qlog h3 small{font-weight:400;opacity:.6;font-size:11px}
+  #qlog table{border-collapse:collapse;width:100%} #qlog th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;opacity:.6;padding:4px 6px;border-bottom:1px solid rgba(255,255,255,.3)}
+  #qlog td{padding:6px;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.12)} #qlog td small{display:block;opacity:.65;margin-top:2px}
+  #qlog .st{white-space:nowrap;font-weight:700} #qlog .done{color:#7be08a} #qlog .act{color:#ffd666} #qlog .rdy{color:#7fd4ff} #qlog .lock{color:#999;font-weight:500} #qlog tr.fin td{opacity:.55}
+  #topts{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+  #topts .to{pointer-events:auto;cursor:pointer;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:5px;padding:5px 10px;font-size:13px}
+  #topts .to:hover{background:rgba(255,214,102,.25);border-color:#ffd666}
   #thint{display:block;margin-top:6px;font-size:11px;opacity:.65;text-align:right}
   #quest{position:fixed;right:14px;top:14px;max-width:260px;text-align:right;font:600 12px system-ui,sans-serif;color:#ffe08a;text-shadow:0 1px 3px rgba(0,0,0,.9);pointer-events:none;display:none}
 </style>
@@ -146,13 +155,15 @@
   <div id="pmain"><button id="pback">Back to game</button><br><br><button id="pbinds">Settings</button><br><br><button id="pmenu">Return to menu</button></div>
   <div id="settings"><button id="sbinds">Change keybinds</button><button id="sfast"></button><button id="sback">Back</button></div>
   <div id="binds"></div><div id="tip"></div></div>
+<canvas id="mmap" width="140" height="140"></canvas>
+<div id="qlog"></div>
 <div id="inv"></div>
 <div id="hotbar"></div>
 <div id="itip"></div>
 <div id="trade" style="display:none"></div>
 <div id="lflash"></div>
 <div id="cutbars"><i></i><div>THE DRAGON OF LIGHT AWAKENS</div><i></i></div>
-<div id="talk"><b id="tname"></b><span id="ttext"></span><span id="thint"></span></div>
+<div id="talk"><b id="tname"></b><span id="ttext"></span><div id="topts"></div><span id="thint"></span></div>
 <div id="quest"></div>
 <div id="boss"><div class="nm">Dragon of Light</div><div class="tr"><i id="bossfill"></i></div></div>
 <div id="tablist"></div>
@@ -1131,8 +1142,8 @@ const FALL_SAFE = 3.2, FALL_DMG = 3.5;        // metres you can drop unhurt; dam
 const GRAVITY = 22, JUMP = 8, MAX_SLOPE = 1.3; // 1.3 ≈ 52° — steeper is a cliff
 const player = {x:0, z:0, yaw:0, pitch:0, y:heightAt(0,0), vy:0, grounded:true, airPeak:heightAt(0,0)};
 const keys = {};
-const BIND_DEFAULTS = {forward:'KeyW', back:'KeyS', left:'KeyA', right:'KeyD', jump:'Space', sprint:'ShiftLeft', pickup:'KeyE', chat:'KeyT', flash:'KeyF'};
-const BIND_LABELS = {forward:'Forward', back:'Backward', left:'Left', right:'Right', jump:'Jump', sprint:'Sprint', pickup:'Pick up (hold) / Talk', chat:'Chat', flash:'Flashlight'};
+const BIND_DEFAULTS = {forward:'KeyW', back:'KeyS', left:'KeyA', right:'KeyD', jump:'Space', sprint:'ShiftLeft', pickup:'KeyE', chat:'KeyT', flash:'KeyF', quests:'KeyQ'};
+const BIND_LABELS = {forward:'Forward', back:'Backward', left:'Left', right:'Right', jump:'Jump', sprint:'Sprint', pickup:'Pick up (hold) / Talk', chat:'Chat', flash:'Flashlight', quests:'Quest log'};
 const binds = Object.assign({}, BIND_DEFAULTS);
 try { Object.assign(binds, JSON.parse(localStorage.getItem('ug-binds') || '{}')); } catch(e){}
 function down(a){ const c = binds[a]; return !!(keys[c] || (c === 'ShiftLeft' && keys.ShiftRight)); }
@@ -1146,7 +1157,8 @@ addEventListener('keydown', e => {
   if(e.code === 'Escape'){
     if(chatOpen){ closeChat(); return; }
     if(invOpen){ closeInv(); return; }
-    if(dlg && (dlg.shop || dlg.craft)){ closeDlg(); return; }
+    if(qlogOpen){ toggleQlog(); return; }
+    if(freeDlg()){ closeDlg(); return; }
     if(started && !dead && !rebinding) toggleMenu();
     return;
   }
@@ -1154,6 +1166,7 @@ addEventListener('keydown', e => {
   if(dead || !started || menuOpen) return;
   if(e.code === binds.chat){ e.preventDefault(); openChat(); return; }
   if(e.code === binds.flash){ if(!e.repeat) flashOn = !flashOn; return; }
+  if(e.code === binds.quests){ e.preventDefault(); if(!e.repeat) toggleQlog(); return; }
   if(e.code === binds.pickup && !e.repeat){
     if(invOpen){ closeInv(); return; }
     if(talkKey()) return;
@@ -1165,7 +1178,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup',   e => { keys[e.code] = false; });
 addEventListener('blur', () => { for(const k in keys) keys[k] = false; });
 
-canvas.addEventListener('click', () => { if(document.pointerLockElement !== canvas){ if(dlg && (dlg.shop || dlg.craft)) closeDlg(); else if(invOpen) closeInv(); else canvas.requestPointerLock(); } });
+canvas.addEventListener('click', () => { if(document.pointerLockElement !== canvas){ if(freeDlg()) closeDlg(); else if(invOpen) closeInv(); else canvas.requestPointerLock(); } });
 let holding = false;
 addEventListener('mousedown', e => { if((e.button === 0 || e.button === 2) && document.pointerLockElement === canvas){ hand = e.button === 0 ? 'L' : 'R'; syncWeapon(); holding = true; } });   // left click = left hand, right click = right hand
 addEventListener('mouseup',   e => { if(e.button === 0 || e.button === 2) holding = false; });
@@ -1248,9 +1261,20 @@ function drawTrees(sunNow, cx, cz){
   });
   gl.uniform1f(mTint, 0);
 }
-function mineYield(x, z){
-  const h = heightAt(x, z), st = 1 + Math.floor(Math.random()*2); inv.stone += st;
-  const ore = Math.random() < 0.15 + Math.max(0, Math.min(1, (h - 15)/80))*0.4 ? 1 + Math.floor(Math.random()*2) : 0; inv.ore += ore;
+// how far below its original surface the ground has been dug at a point (every break digs about a metre)
+function digDepth(x, z){
+  const sv = [lastRock, lastWater, lastFx, lastFz], d = terrainH(x, z) - heightAt(x, z);
+  [lastRock, lastWater, lastFx, lastFz] = sv;
+  return Math.max(0, d);
+}
+// the surface is dirt; stone lies below it, and iron ore deeper still
+function mineYield(x, z, depth){
+  const h = heightAt(x, z);
+  if(rocks(x, z) > 0.5) depth = Math.max(depth, 1.5);                        // a boulder is solid stone all the way through
+  if(depth < 0.5){ const d = 1 + Math.floor(Math.random()*2); inv.dirt += d; addChat('', '+' + d + ' dirt', true); return; }
+  const st = 1 + Math.floor(Math.random()*2); inv.stone += st;
+  const deep = Math.min(1, (depth - 0.5)/2.5), alt = Math.max(0, Math.min(1, (h - 15)/80));
+  const ore = Math.random() < 0.04 + deep*0.4 + alt*0.15 ? 1 + Math.floor(Math.random()*2) : 0; inv.ore += ore;
   addChat('', '+' + st + ' stone' + (ore ? ', +' + ore + ' iron ore' : ''), true);
 }
 function canMove(nx, nz){
@@ -1463,7 +1487,7 @@ function doPunch(){
       const idx = cracks.findIndex(k => Math.hypot(wrapD(x, k.x), wrapD(z, k.z)) < CRACK_LINK);
       if(idx >= 0){                       // already cracked -> break it open
         const k = cracks.splice(idx, 1)[0];
-        breakArea(k.x, k.z); mineYield(k.x, k.z);
+        const dd = digDepth(k.x, k.z); breakArea(k.x, k.z); mineYield(k.x, k.z, dd);
       } else {                            // first hit -> crack the surface
         const ck = {x, z, seed: Math.random()*50}; cracks.push(ck); mpSend({t: 'ck', x: Math.round(x*100)/100, z: Math.round(z*100)/100, s: ck.seed});
         if(cracks.length > MAX_CRACKS) cracks.shift();
@@ -1580,9 +1604,9 @@ function die(){
     dropSword({x: player.x + 0.8, z: player.z, type: 'bag', yaw: Math.random()*6.28, lean: 0, items: {b: inv.bread, p: inv.potion, l: inv.leather ? 1 : 0, i: inv.iron ? 1 : 0}});
     inv.bread = inv.potion = 0; inv.leather = inv.iron = false; armor = null; held.L = held.R = null; weapon = null;
   }
-  if(inv.wood || inv.stone || inv.ore || inv.hide || inv.arrows || inv.crystal || inv.core){
-    dropSword({x: player.x - 0.8, z: player.z, type: 'bag', yaw: Math.random()*6.28, lean: 0, items: {w: inv.wood, s: inv.stone, o: inv.ore, h: inv.hide, a: inv.arrows, c: inv.crystal, k: inv.core}});
-    inv.wood = inv.stone = inv.ore = inv.hide = inv.arrows = inv.crystal = inv.core = 0; held.L = held.R = null;
+  if(inv.dirt || inv.wood || inv.stone || inv.ore || inv.hide || inv.arrows || inv.crystal || inv.core){
+    dropSword({x: player.x - 0.8, z: player.z, type: 'bag', yaw: Math.random()*6.28, lean: 0, items: {w: inv.wood, s: inv.stone, o: inv.ore, h: inv.hide, a: inv.arrows, c: inv.crystal, k: inv.core, d: inv.dirt}});
+    inv.dirt = inv.wood = inv.stone = inv.ore = inv.hide = inv.arrows = inv.crystal = inv.core = 0; held.L = held.R = null;
   }
   closeInv();
   if(chatOpen) closeChat();
@@ -1746,13 +1770,16 @@ document.getElementById('pback').onclick = closeMenu;
 document.getElementById('pbinds').onclick = showSettings;
 document.getElementById('pmenu').onclick = () => { saveNow(); location.reload(); };   // fresh start screen, leaves any multiplayer room
 document.addEventListener('pointerlockchange', () => {
-  if(document.pointerLockElement !== canvas && started && !dead && !menuOpen && !chatOpen && !invOpen && !(dlg && (dlg.shop || dlg.craft)) && performance.now() > lockIgnore) openMenu();   // Esc releases the mouse: show the menu
+  if(document.pointerLockElement !== canvas && started && !dead && !menuOpen && !chatOpen && !invOpen && !freeDlg() && performance.now() > lockIgnore) openMenu();   // Esc releases the mouse: show the menu
 });
 // ---- saved games (singleplayer): kept in this browser's localStorage ----
 const SAVE_KEY = 'ug-saves';
 let curSave = null;
 function loadSaves(){ try { const a = JSON.parse(localStorage.getItem(SAVE_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
 function storeSaves(a){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(a)); return true; } catch(e){ return false; } }
+// the inventory array also carries Orrin's quest progress (index 11 on), so saved profiles need no new fields
+function invArr(){ return [inv.bread, inv.potion, inv.leather ? 1 : 0, inv.iron ? 1 : 0, inv.wood, inv.stone, inv.ore, inv.hide, inv.arrows, inv.crystal, inv.core, sq.i, sq.state === 'active' ? 1 : 0, ...sq.got, Math.max(0, PIPS.indexOf(pip.state)), inv.dirt]; }
+function applySq(a){ sq.i = Math.max(0, a[11] | 0); sq.state = (a[12] | 0) === 1 ? 'active' : 'none'; sq.got = [13, 14, 15, 16].map(k => a[k] | 0); pip.state = PIPS[a[17] | 0] || 'none'; inv.dirt = a[18] | 0; }
 function snapshot(){
   const r = (v, k = 100) => Math.round(v*k)/k;
   return {
@@ -1761,7 +1788,7 @@ function snapshot(){
     ver: 2, hp: Math.round(hp.v), weapon: held.L || inv.weapons[0] || '', weapons: inv.weapons, held: [held.L || '', held.R || ''], dd: dragon.dead ? 1 : 0, gameT: r(gameT, 10), dh: dragon.dead ? 0 : Math.round(dragon.hp),
     digs: digLog, cracks: cracks.map(k => [r(k.x), r(k.z), r(k.seed)]),
     swords: worldSwords.map(w => [r(w.x), r(w.z), w.type, r(w.yaw), r(w.lean), w.items || 0]),
-    inv: [inv.bread, inv.potion, inv.leather ? 1 : 0, inv.iron ? 1 : 0, inv.wood, inv.stone, inv.ore, inv.hide, inv.arrows, inv.crystal, inv.core], armor: armor || '',
+    inv: invArr(), armor: armor || '',
   };
 }
 // ---- multiplayer profiles: personal progress is stored under the player's name (Firebase, with a local copy) ----
@@ -1770,14 +1797,14 @@ const profName = n => n.toLowerCase().replace(/[.#$\[\]\/\s]+/g, '_').slice(0, 4
 function profileState(){
   return {t: Date.now(), name: myName, gold, hp: Math.round(hp.v), weapons: inv.weapons, held: [held.L || '', held.R || ''], armor: armor || '',
           q: {i: quest.i, s: quest.state, b: quest.base, k: monsterKills},
-          inv: [inv.bread, inv.potion, inv.leather ? 1 : 0, inv.iron ? 1 : 0, inv.wood, inv.stone, inv.ore, inv.hide, inv.arrows, inv.crystal, inv.core]};
+          inv: invArr()};
 }
 function applyProfile(st){
   resetQuests();
   if(st.q){ quest.i = st.q.i | 0; quest.state = st.q.s === 'active' || st.q.s === 'ready' ? st.q.s : 'none'; quest.base = st.q.b | 0; monsterKills = st.q.k | 0; updateQuestHud(); }
   setGold(st.gold | 0);
   const a = st.inv || [];
-  inv.bread = a[0] | 0; inv.potion = a[1] | 0; inv.leather = !!a[2]; inv.iron = !!a[3]; inv.wood = a[4] | 0; inv.stone = a[5] | 0; inv.ore = a[6] | 0; inv.hide = a[7] | 0; inv.arrows = a[8] | 0; inv.crystal = a[9] | 0; inv.core = a[10] | 0;
+  inv.bread = a[0] | 0; inv.potion = a[1] | 0; inv.leather = !!a[2]; inv.iron = !!a[3]; inv.wood = a[4] | 0; inv.stone = a[5] | 0; inv.ore = a[6] | 0; inv.hide = a[7] | 0; inv.arrows = a[8] | 0; inv.crystal = a[9] | 0; inv.core = a[10] | 0; applySq(a);
   armor = ARMOR[st.armor] && inv[st.armor] ? st.armor : null;
   inv.weapons.length = 0; held.L = held.R = null;
   for(const t of Array.isArray(st.weapons) ? st.weapons : []) if(SWORD_TYPES[t] && !inv.weapons.includes(t)) inv.weapons.push(t);
@@ -1830,7 +1857,7 @@ function applySave(st){
   resetQuests();
   if(st.q){ quest.i = st.q.i | 0; quest.state = st.q.s === 'active' || st.q.s === 'ready' ? st.q.s : 'none'; quest.base = st.q.b | 0; monsterKills = st.q.k | 0; updateQuestHud(); }
   setGold(st.gold | 0);
-  { const a = st.inv || []; inv.bread = a[0] | 0; inv.potion = a[1] | 0; inv.leather = !!a[2]; inv.iron = !!a[3]; inv.wood = a[4] | 0; inv.stone = a[5] | 0; inv.ore = a[6] | 0; inv.hide = a[7] | 0; inv.arrows = a[8] | 0; inv.crystal = a[9] | 0; inv.core = a[10] | 0; armor = ARMOR[st.armor] && inv[st.armor] ? st.armor : null; }
+  { const a = st.inv || []; inv.bread = a[0] | 0; inv.potion = a[1] | 0; inv.leather = !!a[2]; inv.iron = !!a[3]; inv.wood = a[4] | 0; inv.stone = a[5] | 0; inv.ore = a[6] | 0; inv.hide = a[7] | 0; inv.arrows = a[8] | 0; inv.crystal = a[9] | 0; inv.core = a[10] | 0; applySq(a); armor = ARMOR[st.armor] && inv[st.armor] ? st.armor : null; }
   inv.weapons.length = 0; held.L = held.R = null;
   const ws = Array.isArray(st.weapons) ? st.weapons : (st.weapon ? [st.weapon] : []);
   for(const t of ws) if(SWORD_TYPES[t]) inv.weapons.push(t);
@@ -1931,12 +1958,15 @@ const V_HP = 60, V_WALK = 1.8, V_RUN = 6.2;
 const villagers = [], vRespawn = [];
 let monsterKills = 0, talkTarget = null, dlg = null, vSeq = 0;
 const quest = {i: 0, state: 'none', base: 0};
+const pip = {state: 'none'};                                   // Tilda's quest: none | active | ready | done
+const PIPS = ['none', 'active', 'ready', 'done'];
+const sq = {i: 0, state: 'none', got: [0, 0, 0, 0]};          // Orrin's work: wood, stone, ore, hide handed in so far
 let gold = 0;
 const held = {L: null, R: null};      // what is in each hand: a weapon type, or 'bread' / 'potion'
 let hand = 'L', eatT = 0, staffCd = 0, cut = null, invSig = '';
 function syncWeapon(){ const it = held[hand]; weapon = (it && SWORD_TYPES[it] && inv.weapons.includes(it)) ? it : null; }
 function updWpn(){ syncWeapon(); }
-const inv = {arrows: 0, bread: 0, potion: 0, leather: false, iron: false, wood: 0, stone: 0, ore: 0, hide: 0, crystal: 0, core: 0, weapons: []};
+const inv = {dirt: 0, arrows: 0, bread: 0, potion: 0, leather: false, iron: false, wood: 0, stone: 0, ore: 0, hide: 0, crystal: 0, core: 0, weapons: []};
 let armor = null;                                                    // 'leather' | 'iron' | null
 const ARMOR = {leather: {name: 'Leather Armour', cut: 0.2}, iron: {name: 'Iron Armour', cut: 0.4}};
 const BREAD_HEAL = 30, EAT_TIME = 3;
@@ -1958,16 +1988,17 @@ const MATS = {
   bread: {name: 'Bread', icon: '🍞', kind: 'food', info: 'Hold the mouse button for 3 seconds to eat it.\nRestores 30 health.'},
   potion: {name: 'Health Potion', icon: '🧪', kind: 'food', info: 'Hold the mouse button for 3 seconds to drink it.\nRestores all your health.'},
   arrows: {name: 'Arrows', icon: '➶', kind: 'mat', info: 'Ammunition for the bow.'},
+  dirt: {name: 'Dirt', icon: '🟤', kind: 'mat', info: 'Dug from the surface of the ground.'},
   wood: {name: 'Wood', icon: '🪵', kind: 'mat', info: 'Crafting material. Chop trees for it.'},
-  stone: {name: 'Stone', icon: '🪨', kind: 'mat', info: 'Crafting material. Break open the ground for it.'},
-  ore: {name: 'Iron Ore', icon: '🔩', kind: 'mat', info: 'Crafting material. Found underground and dropped by monsters.'},
+  stone: {name: 'Stone', icon: '🪨', kind: 'mat', info: 'Crafting material. Dig below the surface for it.'},
+  ore: {name: 'Iron Ore', icon: '🔩', kind: 'mat', info: 'Crafting material. Found deep underground and dropped by monsters.'},
   hide: {name: 'Leather', icon: '🟫', kind: 'mat', info: 'Crafting material. Dropped by monsters.'},
   crystal: {name: 'Light Crystal', icon: '💎', kind: 'mat', info: 'Dropped by the Dragon of Light.\nOrrin can craft it into a Light Sword or a Magic Staff.'},
   core: {name: 'Dragon Core', icon: '🔮', kind: 'mat', info: 'The heart of the Dragon of Light.\nGive it to the village elder to revive the dragon.'},
   leather: {name: 'Leather Armour', icon: '🦺', kind: 'armor', info: 'Blocks 20% of all damage.'},
   iron: {name: 'Iron Armour', icon: '🛡️', kind: 'armor', info: 'Blocks 40% of all damage.'},
 };
-const CNT = {bread: () => inv.bread, potion: () => inv.potion, arrows: () => inv.arrows, wood: () => inv.wood, stone: () => inv.stone, ore: () => inv.ore, hide: () => inv.hide, crystal: () => inv.crystal, core: () => inv.core, leather: () => inv.leather ? 1 : 0, iron: () => inv.iron ? 1 : 0};
+const CNT = {dirt: () => inv.dirt, bread: () => inv.bread, potion: () => inv.potion, arrows: () => inv.arrows, wood: () => inv.wood, stone: () => inv.stone, ore: () => inv.ore, hide: () => inv.hide, crystal: () => inv.crystal, core: () => inv.core, leather: () => inv.leather ? 1 : 0, iron: () => inv.iron ? 1 : 0};
 function weaponInfo(t){
   const T = SWORD_TYPES[t];
   let d = T.bow ? 'Damage ' + T.dmg + ' per arrow. Uses arrows (you have ' + inv.arrows + ').' : T.staff ? 'Calls down lightning where you look (up to 50 m): ' + T.dmg + ' damage to everything within 4 m.\n10 second cooldown.' : 'Damage ' + T.dmg + '.';
@@ -1984,7 +2015,7 @@ function invList(){
   const out = [], ws = {};
   for(const t of inv.weapons) ws[t] = (ws[t] || 0) + 1;
   for(const t of Object.keys(ws).sort((a, b) => SWORD_TYPES[a].dmg - SWORD_TYPES[b].dmg)) out.push({id: t, w: true, n: ws[t]});
-  for(const id of ['arrows', 'bread', 'potion', 'leather', 'iron', 'wood', 'stone', 'ore', 'hide', 'crystal', 'core']) if(CNT[id]() > 0) out.push({id, n: CNT[id](), w: false});
+  for(const id of ['arrows', 'bread', 'potion', 'leather', 'iron', 'dirt', 'wood', 'stone', 'ore', 'hide', 'crystal', 'core']) if(CNT[id]() > 0) out.push({id, n: CNT[id](), w: false});
   return out;
 }
 function slotHTML(it){
@@ -2052,7 +2083,7 @@ const swEnc = w => [r2n(w.x), r2n(w.z), w.type, r2n(w.yaw), r2n(w.lean), w.items
 const swDec = a => { const w = {x: a[0], z: a[1], type: a[2], yaw: a[3], lean: a[4]}; if(a[5]) w.items = a[5]; return w; };
 const swOk = t => !!SWORD_TYPES[t] || t === 'bag' || t === 'crystal' || t === 'core';
 function setGold(n){ gold = n; const el = document.getElementById('gold'); el.style.display = gold > 0 ? 'block' : 'none'; el.textContent = '● ' + gold + ' gold'; }
-const talkEl = document.getElementById('talk'), tNameEl = document.getElementById('tname'), tTextEl = document.getElementById('ttext'), tHintEl = document.getElementById('thint');
+const talkEl = document.getElementById('talk'), tNameEl = document.getElementById('tname'), tTextEl = document.getElementById('ttext'), tHintEl = document.getElementById('thint'), toptsEl = document.getElementById('topts');
 const questEl = document.getElementById('quest');
 const SKIN = [[0.93,0.76,0.62],[0.82,0.62,0.46],[0.65,0.45,0.32],[0.88,0.7,0.56]];
 const VSPECS = [
@@ -2149,10 +2180,36 @@ function villagerDamage(v, dmg, threat, glow){
 }
 
 // ---- conversation ----
+const freeDlg = () => !!(dlg && (dlg.shop || dlg.craft || dlg.conv));
+// A conversation node is {say: string | string[], opts: [{t: label, do: fn, go: node | () => node, end: true}]}; the player answers by picking an option.
+function openConv(v, node){
+  dlg = {v, conv: true, node, lines: [''], i: 0}; holding = false;
+  lockIgnore = performance.now() + 700; if(document.pointerLockElement) document.exitPointerLock();
+  renderDlg();
+}
+function convChoose(n){
+  const o = dlg && dlg.conv && dlg.node.opts[n]; if(!o) return;
+  const v = dlg.v;
+  if(o.do) o.do();
+  if(!dlg || dlg.v !== v || !dlg.conv) return;                        // the action opened a shop/forge or closed the talk
+  if(o.end || !o.go){ closeDlg(); return; }
+  dlg.node = typeof o.go === 'function' ? o.go() : o.go;
+  renderDlg();
+}
+toptsEl.addEventListener('click', e => { const el = e.target.closest('.to'); if(el) convChoose(+el.dataset.n); });
+addEventListener('keydown', e => { if(dlg && dlg.conv && !chatOpen && !menuOpen && /^(Digit|Numpad)[1-9]$/.test(e.code)){ e.preventDefault(); convChoose(+e.code.slice(-1) - 1); } });
 function openDlg(v, lines, onEnd, endLabel){ dlg = {v, lines, i: 0, onEnd, endLabel}; renderDlg(); }
 function renderDlg(){
   if(dlg.shop || dlg.craft){ talkEl.style.display = 'none'; tradeEl.style.display = 'block'; renderTrade(); return; }
   tNameEl.textContent = dlg.v.name + (dlg.v.spec && dlg.v.spec.title ? ', ' + dlg.v.spec.title : '');
+  if(dlg.conv){
+    const nd = dlg.node, esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    tTextEl.textContent = Array.isArray(nd.say) ? nd.say.join('\n') : nd.say; tTextEl.style.whiteSpace = 'pre-line';
+    toptsEl.innerHTML = nd.opts.map((o, i) => '<div class="to" data-n="' + i + '">' + (i + 1) + '. ' + esc(o.t) + '</div>').join('');
+    tHintEl.textContent = 'Press 1–' + nd.opts.length + ' or click to answer  ·  ' + keyName(binds.pickup) + ' to leave';
+    talkEl.style.display = 'block'; return;
+  }
+  toptsEl.innerHTML = '';
   tTextEl.textContent = dlg.lines[dlg.i];
   const last = dlg.i === dlg.lines.length - 1;
   tHintEl.textContent = dlg.craft ? 'Press 1–' + CRAFT.length + ' to craft  ·  ' + keyName(binds.pickup) + ' to leave' : dlg.shop ? 'Press 1–' + SHOP.length + ' to buy  ·  ' + keyName(binds.pickup) + ' to leave' : keyName(binds.pickup) + ' — ' + (last ? (dlg.endLabel || 'close') : 'continue');
@@ -2186,7 +2243,10 @@ const tradeEl = document.getElementById('trade');
 const tradeItems = () => dlg.shop ? SHOP : CRAFT;
 const tradeIcon = it => it.sword ? weaponIcon(it.sword) : it.armor ? MATS[it.armor].icon : it.food ? MATS[it.food].icon : MATS.arrows.icon;
 const tradeOwned = it => !!((it.sword && inv.weapons.includes(it.sword)) || (it.armor && inv[it.armor]));
-function tradeCan(it){ if(tradeOwned(it)) return false; if(dlg.shop) return gold >= it.price; for(const k in it.cost) if(inv[k] < it.cost[k]) return false; return true; }
+// once Orrin's forge is finished he charges a quarter less (rounded, never below 1)
+const forgeDone = () => sq.i >= SQD.length;
+function costOf(it){ if(!forgeDone()) return it.cost; const c = {}; for(const k in it.cost) c[k] = Math.max(1, Math.round(it.cost[k]*0.75)); return c; }
+function tradeCan(it){ if(tradeOwned(it)) return false; if(dlg.shop) return gold >= it.price; for(const k in it.cost) if(inv[k] < costOf(it)[k]) return false; return true; }
 function tradeInfoHTML(i){
   const it = tradeItems()[i]; if(!it) return '';
   const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
@@ -2194,7 +2254,7 @@ function tradeInfoHTML(i){
   let foot;
   if(tradeOwned(it)) foot = 'You already have this.';
   else if(dlg.shop) foot = 'Price: ' + it.price + ' gold (you have ' + gold + ')';
-  else foot = 'Needs: ' + Object.keys(it.cost).map(k => it.cost[k] + ' ' + MATN[k] + ' (' + inv[k] + ')').join(', ');
+  else foot = (forgeDone() ? 'Thank-you discount applied. ' : '') + 'Needs: ' + Object.keys(costOf(it)).map(k => costOf(it)[k] + ' ' + MATN[k] + ' (' + inv[k] + ')').join(', ');
   return '<b>' + it.name + '</b><br>' + esc(d) + '<small>' + foot + (tradeOwned(it) ? '' : '<br>Click to ' + (dlg.shop ? 'buy' : 'craft') + '</small>');
 }
 function renderTrade(){
@@ -2227,13 +2287,13 @@ function craftItem(n){
   const say = m => { dlg.msg = m; renderDlg(); };
   if(it.armor && inv[it.armor]) return say('You already own that.');
   if(it.arrows){
-    for(const k in it.cost) if(inv[k] < it.cost[k]) return say("You don't have the materials for that.");
-    for(const k in it.cost) inv[k] -= it.cost[k];
+    for(const k in it.cost) if(inv[k] < costOf(it)[k]) return say("You don't have the materials for that.");
+    for(const k in it.cost) inv[k] -= costOf(it)[k];
     inv.arrows += it.arrows; updWpn(); return say('Orrin hands you five arrows.');
   }
   if(it.sword && inv.weapons.includes(it.sword)) return say('You already have one of those.');
-  for(const k in it.cost) if(inv[k] < it.cost[k]) return say("You don't have the materials for that.");
-  for(const k in it.cost) inv[k] -= it.cost[k];
+  for(const k in it.cost) if(inv[k] < costOf(it)[k]) return say("You don't have the materials for that.");
+  for(const k in it.cost) inv[k] -= costOf(it)[k];
   if(it.armor){ inv[it.armor] = true; if(!armor || ARMOR[it.armor].cut > ARMOR[armor].cut) armor = it.armor; }
   else addWeapon(it.sword);
   say('Orrin hammers it out. "Fine work, if I say so myself."');
@@ -2254,12 +2314,13 @@ function buyItem(n){
 }
 addEventListener('keydown', e => { if(dlg && dlg.shop && !chatOpen && !menuOpen && /^(Digit|Numpad)[1-9]$/.test(e.code)){ e.preventDefault(); buyItem(+e.code.slice(-1) - 1); } });
 function closeDlg(){
-  const t = dlg && (dlg.shop || dlg.craft);
-  dlg = null; talkEl.style.display = 'none';
+  const t = freeDlg();
+  dlg = null; talkEl.style.display = 'none'; toptsEl.innerHTML = '';
   if(t){ tradeEl.style.display = 'none'; itipEl.style.display = 'none'; lockIgnore = performance.now() + 700; if(started && !dead && !menuOpen && !chatOpen && !invOpen) canvas.requestPointerLock(); }
 }
 function talkKey(){
   if(dlg){
+    if(dlg.conv){ closeDlg(); return true; }
     if(dlg.i < dlg.lines.length - 1){ dlg.i++; renderDlg(); }
     else { const f = dlg.onEnd; closeDlg(); if(f) f(); }
     return true;
@@ -2276,8 +2337,8 @@ function introLine(v){
   if(!v.met || Math.random() < 0.3){ v.met = true; return ["Hello there! I'm " + v.name + ", " + v.spec.title + "."]; }
   return [];
 }
-function talkLines(v){
-  const L = introLine(v), s = v.role;
+function talkLines(v, noIntro){
+  const L = noIntro ? [] : introLine(v), s = v.role;
   if(s === 'baker'){
     const wait = 60 - (gameT - v.lastBread);
     if(hp.v >= MAX_HP - 1) L.push("Fresh bread, straight from the oven! ...but you look perfectly healthy. Come back when you're hurt.");
@@ -2305,19 +2366,18 @@ function talkLines(v){
   } else if(s === 'guard'){
     L.push("Keep your wits about you. You have " + Math.round(hp.v) + " health" + (weapon ? " and a " + SWORD_TYPES[weapon].name : " and only your fists") + ".", monsterKills ? "You've slain " + monsterKills + " monster" + (monsterKills === 1 ? "" : "s") + " so far. The village is grateful." : "You haven't slain any monsters yet. Be careful out there.");
   } else if(s === 'child'){
-    L.push(quest.state === 'ready' || quest.i > 1 ? "Thank you for bringing me home! Mum was so worried." : "Hello!");
+    L.push(pip.state === 'ready' || pip.state === 'done' ? "Thank you for bringing me home! Mum was so worried." : "Hello!");
   }
   return L;
 }
-function questDef(i){
-  const k = i % 3, tier = Math.floor(i/3);
-  if(k === 0){ const n = 10 + 5*tier; return {kind: 'kill', n, title: 'Slay ' + n + ' monsters', ask: "Creatures creep out of the dark and trouble our village. Slay " + n + " of them and I will be in your debt."}; }
-  if(k === 1) return {kind: 'child', title: 'Find the lost child', ask: "A little boy named Pip wandered off from the village and has not come back. Please find him and bring him home safely."};
-  return {kind: 'summit', title: 'Reach a mountain summit', ask: "The old custom says a traveller should look out over the whole island from a mountain top. Climb above the clouds... well, very high, and come back to tell me what you saw."};
-}
+const QDEFS = [
+  {kind: 'kill', n: 10, title: 'Slay 10 monsters', gold: 30, ask: "Creatures creep out of the dark and trouble our village. Slay 10 of them and I will be in your debt.", done: "Ten fewer monsters in the dark. The whole village sleeps easier tonight."},
+  {kind: 'dragon', title: 'Meet the Dragon of Light', ask: "The Dragon of Light has circled this island since before I was born. Every traveller should meet it once. Go close enough to strike it, and come back to tell me what you saw.", done: "You stood before the Dragon of Light and lived to tell it! Few can say as much."},
+];
+function questDef(i){ return QDEFS[i] || null; }
 const SUMMIT_Y = 78;
 function questText(){
-  const d = questDef(quest.i);
+  const d = questDef(quest.i); if(!d) return '';
   if(quest.state === 'ready') return 'Quest complete — return to Elder Maren';
   if(d.kind === 'kill') return 'Quest: ' + d.title + ' (' + Math.min(d.n, monsterKills - quest.base) + '/' + d.n + ')';
   if(d.kind === 'child'){
@@ -2326,65 +2386,155 @@ function questText(){
     if(c) return 'Quest: ' + d.title + ' (' + near10(Math.hypot(c.x - player.x, c.z - player.z)) + ' m ' + compass(c.x - player.x, c.z - player.z) + ', look for the light beam)';
     return 'Quest: ' + d.title;
   }
+  if(dragon.ready && !dragon.dead){ const h = snake.pts[0]; return 'Quest: ' + d.title + ' (get within striking range; it is ' + near10(Math.hypot(h[0] - player.x, h[2] - player.z)) + ' m ' + compass(h[0] - player.x, h[2] - player.z) + ')'; }
   return 'Quest: ' + d.title;
 }
+// Orrin's work: he is building a bigger forge and needs materials
+const SQK = ['wood', 'stone', 'ore', 'hide'], SQN = ['wood', 'stone', 'iron ore', 'leather'];
+const SQD = [
+  {title: 'Timber and stone for the forge', need: [10, 6, 0, 0], gold: 25, ask: "I'm building a bigger forge, one that could stand up to dragon fire. The frame comes first: wood and stone, and plenty of it.", done: "That's the frame standing. Solid work."},
+  {title: 'Ore and leather for the bellows', need: [0, 0, 6, 4], gold: 40, ask: "Now the bellows. They need iron ore for the fittings and leather for the skin.", done: "Fine bellows, those. She'll breathe fire now."},
+  {title: 'Stone and ore for the hearth', need: [0, 15, 10, 0], gold: 70, ask: "Last piece: the hearth itself. It has to take more heat than anything in this village ever has.", done: "The hearth is lit, and the forge is finished. I couldn't have done it without you. From now on, everything I forge for you costs a quarter less."},
+];
+const sqNeedStr = (d, got) => d.need.map((n, i) => n ? SQN[i] + ' ' + (got ? Math.min(n, sq.got[i]) + '/' + n : n) : '').filter(Boolean).join(', ');
+function pipText(){
+  if(pip.state === 'ready') return 'Quest: Pip is home, return to Tilda';
+  const c = villagers.find(v => v.role === 'child');
+  if(c && c.state === 'follow') return 'Quest: bring Pip back to the village';
+  if(c) return 'Quest: Find Pip (' + near10(Math.hypot(c.x - player.x, c.z - player.z)) + ' m ' + compass(c.x - player.x, c.z - player.z) + ', look for the light beam)';
+  return 'Quest: Find Pip';
+}
 function updateQuestHud(){
-  if(quest.state === 'none'){ questEl.style.display = 'none'; return; }
-  const t = questText(); questEl.style.display = 'block'; if(questEl.textContent !== t) questEl.textContent = t;
+  const L = [];
+  if(quest.state !== 'none' && questDef(quest.i)) L.push(questText());
+  if(pip.state === 'active' || pip.state === 'ready') L.push(pipText());
+  if(sq.state === 'active' && SQD[sq.i]) L.push('Orrin: ' + SQD[sq.i].title + ' (' + sqNeedStr(SQD[sq.i], true) + ')');
+  if(!L.length){ questEl.style.display = 'none'; return; }
+  const t = L.join('\n'); questEl.style.display = 'block'; questEl.style.whiteSpace = 'pre-line'; if(questEl.textContent !== t) questEl.textContent = t;
+}
+function dragonNear(){
+  if(dragon.dead) return true;                                       // nothing left to meet: don't strand the quest
+  if(!dragon.ready) return false;
+  const x = player.x, y = player.y + EYE, z = player.z;
+  let best = 1e9;
+  for(let i = 0; i < SN; i++){
+    const a = snake.pts[i], b = snake.pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], l2 = dx*dx + dy*dy + dz*dz || 1e-6;
+    const t = Math.max(0, Math.min(1, ((x - a[0])*dx + (y - a[1])*dy + (z - a[2])*dz)/l2)), w = (snake.w[i] + snake.w[i + 1])/2;
+    best = Math.min(best, Math.hypot(x - (a[0] + dx*t), y - (a[1] + dy*t), z - (a[2] + dz*t)) - (w*0.55 + 0.1));
+  }
+  const h = snake.pts[0], fx = Math.sin(dragon.psi), fz = Math.cos(dragon.psi);
+  best = Math.min(best, Math.hypot(x - (h[0] + fx*1.2), y - (h[1] + 0.3), z - (h[2] + fz*1.2)) - 2.2);
+  return best <= SWORD_REACH;
 }
 function placeChild(){
+  // Pip wanders off to the far side of the northern mountains, near the foot of the range
+  const mk = (x, z) => { const c = makeVillager({name: 'Pip', role: 'child', title: 'a lost boy', shirt: [0.3,0.6,0.85], pants: [0.45,0.3,0.2], hair: [0.7,0.45,0.2], skin: 0, scale: 0.6}, x, z, {state: 'lost', met: true}); c.warned = false; return c; };
+  for(let t = 0; t < 600; t++){
+    const th = (Math.random() - 0.5)*1.1, r = 500 + Math.random()*120, x = Math.sin(th)*r, z = -Math.cos(th)*r, h = heightAt(x, z);
+    if(h > 2 && h < 40 && waterDepthAt(x, z) < 0.1 && Math.abs(heightAt(x + 3, z) - h) < (t < 400 ? 1.5 : 3) && Math.abs(heightAt(x, z + 3) - h) < (t < 400 ? 1.5 : 3)) return mk(x, z);
+  }
   for(let t = 0; t < 120; t++){
     const a = Math.random()*6.283, r = 130 + Math.random()*180, x = Math.cos(a)*r, z = Math.sin(a)*r, h = heightAt(x, z);
-    if(h > 2 && h < 45 && waterDepthAt(x, z) < 0.1 && Math.abs(heightAt(x + 3, z) - h) < 1.5 && Math.abs(heightAt(x, z + 3) - h) < 1.5){
-      const c = makeVillager({name: 'Pip', role: 'child', title: 'a lost boy', shirt: [0.3,0.6,0.85], pants: [0.45,0.3,0.2], hair: [0.7,0.45,0.2], skin: 0, scale: 0.6}, x, z, {state: 'lost', met: true});
-      c.warned = false; return c;
-    }
+    if(h > 2 && h < 45 && waterDepthAt(x, z) < 0.1) return mk(x, z);
   }
 }
-function elderTalk(v){
-  const d = questDef(quest.i), L = introLine(v);
-  if(quest.state === 'none'){
-    L.push(d.ask, "Task: " + d.title + ".");
-    return {lines: L, endLabel: 'accept the quest', onEnd: () => {
-      quest.state = 'active'; quest.base = monsterKills;
-      if(d.kind === 'child' && !villagers.some(c => c.role === 'child')) placeChild();
-      addChat('', 'New quest: ' + d.title, true); updateQuestHud();
-    }};
-  }
-  if(quest.state === 'active'){
-    if(d.kind === 'kill') L.push("How goes the hunt? You have slain " + Math.min(d.n, monsterKills - quest.base) + " of " + d.n + ".");
-    else if(d.kind === 'child'){
-      const c = villagers.find(x => x.role === 'child');
-      if(c && c.state === 'lost') L.push("Pip was last seen playing somewhere to the " + compass(c.x, c.z) + ", perhaps " + near10(Math.hypot(c.x, c.z)) + " m from here. Please hurry!");
-      else if(c) L.push("You have found him! Now bring him back to the village.");
-      else L.push("Please find Pip!");
-    } else L.push("Have you climbed a mountain yet? The view is worth it. Go as high as you can.");
-    return {lines: L};
-  }
-  L.push("You have done it! The whole village thanks you.", quest.i === 0 ? "Take this purse of 30 gold, and a moment to rest. (Your health is fully restored.)" : "Take a moment to rest. (Your health is fully restored.)");
-  return {lines: L, endLabel: 'finish the quest', onEnd: () => {
-    hp.v = MAX_HP; hp.last = gameT; addChat('', 'Quest complete: ' + d.title + '!', true);
-    if(quest.i === 0){ setGold(gold + 30); addChat('', 'The elder rewards you with 30 gold.', true); }
-    quest.i++; quest.state = 'none'; updateQuestHud();
+const BYE = {t: 'Goodbye', end: true};
+const SHE = ['elder', 'baker', 'merchant', 'riddle'];                // Maren, Tilda, Brea, Poppy
+const SMALLTALK = ["Can't complain. The island keeps me busy.", "Same as ever: a quiet day is a good day.", "Better for seeing a friendly face.", "Not bad at all. Mind the monsters after dark."];
+const TOPIC = {baker: 'Ask for a loaf of bread', smith: 'Ask about weapons', farmer: 'Ask about the weather', lamplighter: 'Ask about the Dragon of Light', merchant: 'Ask for your fortune', story: 'Ask for a story', riddle: 'Ask for a riddle', guard: 'Ask how things are'};
+function convNode(v, say, opts){ return {say, opts: opts.concat([BYE])}; }
+function menuFor(v, again){
+  const intro = introLine(v);
+  const say = again ? pick(["Anything else?", "What else can I do for you?", "Yes?"]) : intro.length ? intro[0] : pick(["Hello again.", "Good to see you.", "Yes, traveller?", "Back again?"]);
+  const back = {t: 'Ask something else', go: () => menuFor(v, true)};
+  const topic = (label, fn) => ({t: label, go: () => convNode(v, fn(), [back])});
+  const small = topic('Ask how ' + (SHE.includes(v.role) ? 'she' : 'he') + ' is', () => pick(SMALLTALK));
+  if(v.role === 'elder') return elderMenu(v, say, back, topic);
+  if(v.role === 'smith') return convNode(v, say, [
+    {t: 'Look at the crafting recipes', do: () => openCraft(v)},
+    {t: 'Ask if he has any work', go: () => smithWork(v)},
+    topic(TOPIC.smith, () => talkLines(v, true).join('\n')),
+  ]);
+  if(v.role === 'shop') return convNode(v, again ? say : v.met2 ? "Welcome back! Have a look." : "Welcome, traveller! Greg's the name, and every price here is an honest one.", [
+    {t: 'Look at the wares', do: () => openShop(v)},
+    topic('Ask about the shop', () => "Bread, potions, armour and a decent bow: if I don't have it, you probably don't need it."),
+  ]);
+  const base = [topic(TOPIC[v.role] || 'Chat', () => talkLines(v, true).join('\n')), small];
+  if(v.role === 'baker'){ const po = pipOption(v); if(po) base.unshift(po); }
+  return convNode(v, say, base);
+}
+function pipOption(v){
+  const back = {t: 'Ask something else', go: () => menuFor(v, true)};
+  if(pip.state === 'none') return {t: 'Ask why she looks so worried', go: () => convNode(v, ["Oh, traveller... it's my little boy, Pip. He ran off chasing a butterfly and hasn't come home.", "He was last seen heading north, towards the mountains. Please, will you look for him?", "It isn't much, but I can pay 50 gold and give you two loaves of bread."], [
+    {t: 'Promise to find Pip', do: () => { pip.state = 'active'; placeChild(); addChat('', 'New quest: Find Pip', true); updateQuestHud(); }, go: () => convNode(v, "Thank you, thank you! Please hurry.", [])},
+    {t: 'Not right now', go: () => menuFor(v, true)}])};
+  if(pip.state === 'active') return {t: 'Ask about Pip', go: () => {
+    const c = villagers.find(x => x.role === 'child');
+    return convNode(v, c && c.state === 'lost' ? "He went north, into the mountains. Perhaps " + near10(Math.hypot(c.x - player.x, c.z - player.z)) + " m from here, at the foot of the far side. Please find him!" : c ? "You have found him! Please bring him back to the village." : "Please find my Pip!", [back]);
   }};
+  if(pip.state === 'ready') return {t: 'Tell her Pip is home', do: () => {
+    hp.v = MAX_HP; hp.last = gameT; setGold(gold + 50); inv.bread += 2; pip.state = 'done'; updateQuestHud();
+    addChat('', 'Quest complete: Find Pip! Tilda gives you 50 gold and 2 bread.', true);
+  }, go: () => convNode(v, ["Pip! Oh, you're safe! Thank you, from the bottom of my heart.", "Take 50 gold and two loaves, fresh from the oven, and a moment to rest. (Your health is fully restored.)"], [back])};
+  return null;
+}
+function elderMenu(v, say, back, topic){
+  const o = [], d = questDef(quest.i);
+  if(inv.core > 0 && dragon.dead) o.push({t: 'Show him the Dragon Core', go: () => ({say: ["That glow... Is that the Dragon Core? I never thought I would see one with my own eyes.", "The Dragon of Light guarded this island long ago. Give me the core and I can call it back from the dark.", "But be warned, it will return as mighty as ever. Stand back!"], opts: [{t: 'Hand over the core', do: () => reviveDragon(), end: true}, {t: 'Not yet', go: () => menuFor(v, true)}]})});
+  if(quest.state === 'ready' && d) o.push({t: "Tell him you've finished the task", do: () => {
+    hp.v = MAX_HP; hp.last = gameT; addChat('', 'Quest complete: ' + d.title + '!', true);
+    if(d.gold){ setGold(gold + d.gold); addChat('', 'The elder rewards you with ' + d.gold + ' gold.', true); }
+    if(d.bread){ inv.bread += d.bread; addChat('', 'The elder gives you ' + d.bread + ' bread.', true); }
+    quest.i++; quest.state = 'none'; updateQuestHud();
+  }, go: () => convNode(v, [d.done, "Take " + (d.gold ? d.gold + " gold" + (d.bread ? " and " + d.bread + " loaves of bread" : "") + ", and " : "") + "a moment to rest. (Your health is fully restored.)"], [back])});
+  else if(quest.state === 'active' && d) o.push({t: 'Ask about the task', go: () => {
+    const L = [];
+    if(d.kind === 'kill') L.push("How goes the hunt? You have slain " + Math.min(d.n, monsterKills - quest.base) + " of " + d.n + ".");
+    else if(false){
+    } else L.push("The Dragon of Light roams the island. Get close enough to strike it, then come and tell me.");
+    return convNode(v, L, [back]);
+  }});
+  else if(quest.state === 'none') o.push(d ? {t: 'Ask if there is anything you can do', go: () => ({say: [d.ask, "Task: " + d.title + "."], opts: [
+      {t: 'Accept the task', do: () => { quest.state = 'active'; quest.base = monsterKills; addChat('', 'New quest: ' + d.title, true); updateQuestHud(); }, go: () => convNode(v, "Thank you. Take care out there.", [])},
+      {t: 'Not right now', go: () => menuFor(v, true)}]})}
+    : {t: 'Ask if there is anything you can do', go: () => convNode(v, "Thank you, but I don't need anything else at the moment. You have done more than enough for this village.", [back])});
+  o.push(topic('Ask about the island', () => TALES[v.n++ % TALES.length]));
+  return convNode(v, say, o);
+}
+function smithWork(v, pre){
+  const d = SQD[sq.i], back = {t: 'Ask something else', go: () => menuFor(v, true)};
+  const lead = pre ? [pre, ''] : [];
+  if(!d) return convNode(v, lead.concat("The new forge is finished, and it's a beauty. I don't need anything else at the moment, but thank you. Remember: my work is a quarter cheaper for you now."), [back]);
+  if(sq.state === 'none') return convNode(v, lead.concat(d.ask, "I need: " + sqNeedStr(d) + ". Reward: " + d.gold + " gold."), [
+    {t: "Agree to bring the materials", do: () => { sq.state = 'active'; sq.got = [0, 0, 0, 0]; addChat('', 'New work for Orrin: ' + d.title, true); updateQuestHud(); }, go: () => convNode(v, "Bring them whenever you have them, and hand them over right here.", [back])},
+    {t: 'Not right now', go: () => menuFor(v, true)}]);
+  const have = SQK.map(k => inv[k]);
+  return convNode(v, lead.concat("Still needed: " + sqNeedStr(d, true) + ".", "You are carrying: " + SQK.map((k, i) => d.need[i] ? SQN[i] + ' ' + have[i] : '').filter(Boolean).join(', ') + "."), [
+    {t: 'Hand over materials', do: () => {
+      let gave = 0;
+      d.need.forEach((n, i) => { const g = Math.min(inv[SQK[i]], Math.max(0, n - sq.got[i])); inv[SQK[i]] -= g; sq.got[i] += g; gave += g; });
+      v.smMsg = gave ? 'You hand over ' + gave + ' item' + (gave === 1 ? '' : 's') + '.' : "You aren't carrying anything I need yet.";
+      if(d.need.every((n, i) => sq.got[i] >= n)){
+        setGold(gold + d.gold); addChat('', 'Orrin pays you ' + d.gold + ' gold.', true);
+        v.smMsg = d.done + ' (+' + d.gold + ' gold)'; sq.i++; sq.state = 'none'; sq.got = [0, 0, 0, 0];
+      }
+      updateQuestHud();
+    }, go: () => smithWork(v, v.smMsg)}, back]);
 }
 function startTalk(v){
   if(v.role === 'child' && v.state === 'lost'){
-    openDlg(v, ["Hic... I got lost chasing a butterfly! I want to go home. Can I come with you?"], () => { v.state = 'follow'; updateQuestHud(); addChat('', 'Pip is following you. Take him to the village.', true); }, 'take him home');
+    openConv(v, {say: "Hic... I got lost chasing a butterfly! I want to go home. Can I come with you?", opts: [
+      {t: "Come with me, I'll take you home", do: () => { v.state = 'follow'; updateQuestHud(); addChat('', 'Pip is following you. Take him to the village.', true); }, end: true},
+      {t: 'Stay here a moment', end: true}]});
     return;
   }
-  if(v.role === 'child' && v.state === 'follow'){ openDlg(v, ["I'm right behind you! Which way is home?"]); return; }
-  if(v.role === 'smith'){ openDlg(v, talkLines(v).concat(["Bring me wood, stone, iron ore or hide and I'll forge you something proper."]), () => openCraft(v), 'hand over materials'); return; }
-  if(v.role === 'shop'){ openDlg(v, [v.met2 ? "Welcome back! Have a look." : "Welcome, traveller! Greg's the name, and every price here is an honest one. Care to see my wares?"], () => openShop(v), 'see the wares'); v.met2 = true; return; }
-  if(v.role === 'elder' && inv.core > 0 && dragon.dead && quest.state !== 'ready'){
-    openDlg(v, ["That glow... Is that the Dragon Core? I never thought I would see one with my own eyes.", "The Dragon of Light guarded this island long ago. Give me the core and I can call it back from the dark.", "But be warned, it will return as mighty as ever. Stand back!"], () => reviveDragon(), 'give him the Dragon Core'); return;
-  }
-  if(v.role === 'elder'){ const t = elderTalk(v); openDlg(v, t.lines, t.onEnd, t.endLabel); return; }
-  openDlg(v, talkLines(v));
+  if(v.role === 'child' && v.state === 'follow'){ openConv(v, {say: "I'm right behind you! Which way is home?", opts: [{t: 'This way, stay close', end: true}]}); return; }
+  openConv(v, menuFor(v));
+  if(v.role === 'shop') v.met2 = true;
 }
 
 function updateVillagers(dt){
-  if(!placeChild.done && quest.state === 'active' && questDef(quest.i).kind === 'child' && !villagers.some(c => c.role === 'child')) placeChild();
+  if(pip.state === 'active' && !villagers.some(c => c.role === 'child')) placeChild();
   for(let i = vRespawn.length - 1; i >= 0; i--) if(!mpClient() && gameT >= vRespawn[i].t){ spawnVillager(vRespawn[i].spec, true); vRespawn.splice(i, 1); }
   for(const v of villagers.slice()) if(v.glow > 0){ v.glow -= dt; if(!mpClient()){ v.glowTick -= dt; if(v.glowTick <= 0){ v.glowTick += 2; villagerDamage(v, 5, v.threat || null); } } }
   talkTarget = null; let bestD = 3.4;
@@ -2411,11 +2561,11 @@ function updateVillagers(dt){
         if(!villageBlocked(nx, v.z, 0.35)) v.x = nx; if(!villageBlocked(v.x, nz, 0.35)) v.z = nz;
         v.moving = true; v.phase += dt*5;
       }
-      if(quest.state === 'active' && questDef(quest.i).kind === 'child' && Math.hypot(v.x, v.z) < 26 && d < 9){
+      if(pip.state === 'active' && Math.hypot(v.x, v.z) < 26 && d < 9){
         let bi = 0, bd = 1e9;
         VG.streets.forEach(s => { const n = VG.nodes[s], q = Math.hypot(n.x - v.x, n.z - v.z); if(q < bd){ bd = q; bi = s; } });
         v.node = bi; v.x = VG.nodes[bi].x; v.z = VG.nodes[bi].z; v.state = 'idle'; v.timer = 2; v.home = homeFor({}); v.spec = Object.assign({}, v.spec, {title: 'a young boy'});
-        quest.state = 'ready'; updateQuestHud(); addChat('', 'Pip is safe at home. Return to Elder Maren.', true);
+        pip.state = 'ready'; updateQuestHud(); addChat('', 'Pip is safe at home. Return to Tilda.', true);
       }
     } else if(talking){
       v.yaw = Math.atan2(-dx, -dz);
@@ -2448,9 +2598,9 @@ function updateVillagers(dt){
   }
   if(dlg && (menuOpen || dead || !villagers.includes(dlg.v))) closeDlg();
   if(quest.state === 'active'){
-    const d = questDef(quest.i);
+    const d = questDef(quest.i) || {};
     if(d.kind === 'kill' && monsterKills - quest.base >= d.n) quest.state = 'ready';
-    else if(d.kind === 'summit' && player.y > SUMMIT_Y) quest.state = 'ready';
+    else if(d.kind === 'dragon' && dragonNear()) quest.state = 'ready';
     if(quest.state === 'ready') addChat('', 'Quest objective complete! Return to Elder Maren.', true);
   }
   updateQuestHud();
@@ -2535,7 +2685,7 @@ function updateVillagerUI(cx, cy, cz, cR_, cU_, cF_, aspect){
       v.tag.style.display = show ? 'block' : 'none';
       if(show){
         v.tag.style.left = sx + 'px'; v.tag.style.top = sy + 'px';
-        const mark = v.role === 'elder' ? (quest.state === 'none' ? '❗ ' : quest.state === 'ready' ? '❓ ' : '') : '';
+        const mark = v.role === 'baker' ? (pip.state === 'none' ? '❗ ' : pip.state === 'ready' ? '❓ ' : '') : v.role === 'elder' ? (quest.state === 'none' && questDef(quest.i) ? '❗ ' : quest.state === 'ready' ? '❓ ' : '') : v.role === 'smith' ? (sq.state === 'none' && SQD[sq.i] ? '❗ ' : '') : '';
         const t = mark + v.name; if(v.tag.textContent !== t) v.tag.textContent = t;
       }
     }
@@ -2547,9 +2697,95 @@ function updateVillagerUI(cx, cy, cz, cR_, cU_, cF_, aspect){
     }
   }
 }
+// ---- mini map: terrain around you, north up, with an arrow for the way you face ----
+const mmEl = document.getElementById('mmap'), mmc = mmEl.getContext('2d'), mmTer = document.createElement('canvas'), MM_R = 90, MM_N = 70;
+mmTer.width = mmTer.height = MM_N;
+const mmt = mmTer.getContext('2d');
+let mmX = 1e9, mmZ = 1e9, mmLast = 0;
+function mmRefresh(){
+  const img = mmt.createImageData(MM_N, MM_N), st = MM_R*2/MM_N;
+  for(let j = 0; j < MM_N; j++) for(let i = 0; i < MM_N; i++){
+    const x = player.x - MM_R + (i + 0.5)*st, z = player.z - MM_R + (j + 0.5)*st, h = heightAt(x, z), dep = waterLevelAt(x, z) - h;
+    const sh = Math.max(0.72, Math.min(1.25, 1 - (heightAt(x + st, z) - heightAt(x - st, z))*0.035));
+    let r, g, b;
+    if(dep > 0.25){ const k = Math.min(1, dep/6); r = 70 - 40*k; g = 130 - 60*k; b = 190 - 40*k; }
+    else if(h < 3) { r = 214; g = 198; b = 140; }
+    else if(h > 85){ r = 238; g = 240; b = 246; }
+    else if(h > 48){ const k = (h - 48)/37; r = 128 + 100*k; g = 124 + 105*k; b = 114 + 120*k; }
+    else { const k = Math.min(1, Math.max(0, (h - 8)/40)); r = 84 + 50*k; g = 140 - 14*k; b = 70 + 20*k; }
+    const q = (j*MM_N + i)*4; img.data[q] = Math.min(255, r*sh); img.data[q + 1] = Math.min(255, g*sh); img.data[q + 2] = Math.min(255, b*sh); img.data[q + 3] = 255;
+  }
+  mmt.putImageData(img, 0, 0); mmX = player.x; mmZ = player.z;
+}
+function tickMap(){
+  const show = started && !dead && !(cut && cut.cam);
+  if(mmEl.style.display !== (show ? 'block' : 'none')) mmEl.style.display = show ? 'block' : 'none';
+  const now = performance.now();
+  if(!show || now - mmLast < 60) return;
+  mmLast = now;
+  if(Math.hypot(player.x - mmX, player.z - mmZ) > 3) mmRefresh();
+  const W = 140, c = W/2;
+  mmc.clearRect(0, 0, W, W);
+  mmc.save(); mmc.beginPath(); mmc.arc(c, c, c - 2, 0, 6.2832); mmc.clip();
+  mmc.imageSmoothingEnabled = false; mmc.drawImage(mmTer, (mmX - player.x)/MM_R*c, (mmZ - player.z)/MM_R*c, W, W);
+  mmc.restore();
+  mmc.lineWidth = 2; mmc.strokeStyle = 'rgba(255,255,255,.85)'; mmc.beginPath(); mmc.arc(c, c, c - 2, 0, 6.2832); mmc.stroke();
+  mmc.save(); mmc.translate(c, c); mmc.rotate(player.yaw);                                          // the arrow points the way you face
+  mmc.fillStyle = 'rgba(255,255,255,.22)'; mmc.beginPath(); mmc.moveTo(0, 0); mmc.lineTo(-22, -42); mmc.lineTo(22, -42); mmc.closePath(); mmc.fill();
+  mmc.fillStyle = '#e53'; mmc.strokeStyle = '#fff'; mmc.lineWidth = 1.5; mmc.beginPath(); mmc.moveTo(0, -8); mmc.lineTo(5.5, 6); mmc.lineTo(0, 3); mmc.lineTo(-5.5, 6); mmc.closePath(); mmc.fill(); mmc.stroke();
+  mmc.restore();
+  mmc.font = '700 11px system-ui,sans-serif'; mmc.textAlign = 'center'; mmc.textBaseline = 'middle';
+  for(const [t, x, y] of [['N', c, 11], ['S', c, W - 11], ['E', W - 11, c], ['W', 11, c]]){
+    mmc.fillStyle = 'rgba(0,0,0,.6)'; mmc.beginPath(); mmc.arc(x, y, 8, 0, 6.2832); mmc.fill();
+    mmc.fillStyle = t === 'N' ? '#ff7b6b' : '#fff'; mmc.fillText(t, x, y + 0.5);
+  }
+  if(qlogOpen && now - qlogT > 500) renderQlog();
+}
+// ---- quest log (Q) ----
+const qlogEl = document.getElementById('qlog');
+let qlogOpen = false, qlogT = 0;
+function toggleQlog(){ qlogOpen = !qlogOpen; qlogEl.style.display = qlogOpen ? 'block' : 'none'; if(qlogOpen) renderQlog(); }
+function questRows(){
+  const R = [], E = 'Elder Maren', O = 'Orrin the blacksmith';
+  const stat = (done, state, prog) => done ? ['Completed', 'done'] : state === 'ready' ? ['Ready to hand in', 'rdy'] : state === 'active' ? ['In progress' + (prog ? ' · ' + prog : ''), 'act'] : ['Not started', 'lock'];
+  QDEFS.forEach((d, j) => {
+    const done = j < quest.i, cur = j === quest.i, state = cur ? quest.state : 'none';
+    const prog = d.kind === 'kill' ? Math.min(d.n, monsterKills - quest.base) + '/' + d.n : '';
+    let next = '';
+    if(done) next = '—';
+    else if(!cur) next = 'Finish "' + QDEFS[j - 1].title + '" first';
+    else if(state === 'none') next = 'Talk to ' + E;
+    else if(state === 'ready') next = 'Return to ' + E;
+    else if(d.kind === 'kill') next = 'Slay ' + (d.n - Math.min(d.n, monsterKills - quest.base)) + ' more monster' + (d.n - Math.min(d.n, monsterKills - quest.base) === 1 ? '' : 's');
+    else if(dragon.ready && !dragon.dead){ const h = snake.pts[0]; next = 'Get within striking range of the Dragon of Light (' + near10(Math.hypot(h[0] - player.x, h[2] - player.z)) + ' m ' + compass(h[0] - player.x, h[2] - player.z) + ')'; }
+    else next = 'Find the Dragon of Light';
+    const [st, cl] = stat(done, state, prog);
+    R.push({title: d.title, desc: d.ask, by: E, st, cl, reward: d.gold ? d.gold + ' gold + full health' : 'Full health', next, fin: done});
+  });
+  { const done = pip.state === 'done', c = villagers.find(v => v.role === 'child');
+    let next = '—';
+    if(pip.state === 'none') next = 'Talk to Tilda the baker';
+    else if(pip.state === 'ready') next = 'Return to Tilda';
+    else if(pip.state === 'active') next = c && c.state === 'follow' ? 'Bring Pip back to the village' : c ? 'Find Pip, ' + near10(Math.hypot(c.x - player.x, c.z - player.z)) + ' m ' + compass(c.x - player.x, c.z - player.z) + ' (look for the light beam)' : 'Find Pip in the northern mountains';
+    const [st, cl] = stat(done, pip.state, '');
+    R.push({title: 'Find Pip', desc: "Tilda's little boy Pip wandered off towards the mountains to the north. Find him and bring him home.", by: 'Tilda the baker', st, cl, reward: '50 gold + 2 bread + full health', next, fin: done}); }
+  SQD.forEach((d, j) => {
+    const done = j < sq.i, cur = j === sq.i, state = cur ? sq.state : 'none';
+    const next = done ? '—' : !cur ? 'Finish "' + SQD[j - 1].title + '" first' : state === 'none' ? 'Talk to Orrin and ask about work' : 'Bring Orrin: ' + sqNeedStr(d, true);
+    const [st, cl] = stat(done, state === 'active' ? 'active' : 'none', state === 'active' ? sqNeedStr(d, true) : '');
+    R.push({title: d.title, desc: d.ask, by: O, st, cl, reward: d.gold + ' gold' + (j === SQD.length - 1 ? ' + 25% cheaper crafting' : ''), next, fin: done});
+  });
+  return R;
+}
+function renderQlog(){
+  qlogT = performance.now();
+  const esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  qlogEl.innerHTML = '<h3>Quests<small>' + keyName(binds.quests) + ' to close</small></h3><table><tr><th>Quest</th><th>Status</th><th>Reward</th><th>Next objective</th></tr>' +
+    questRows().map(r => '<tr' + (r.fin ? ' class="fin"' : '') + '><td><b>' + esc(r.title) + '</b><small>' + esc(r.by) + ': ' + esc(r.desc) + '</small></td><td class="st ' + r.cl + '">' + esc(r.st) + '</td><td>' + esc(r.reward) + '</td><td>' + esc(r.next) + '</td></tr>').join('') + '</table>';
+}
 function resetQuests(){
-  setGold(0); inv.bread = inv.potion = 0; inv.leather = inv.iron = false; inv.wood = inv.stone = inv.ore = inv.hide = inv.arrows = 0; armor = null;
-  monsterKills = 0; quest.i = 0; quest.state = 'none'; quest.base = 0; closeDlg();
+  setGold(0); inv.bread = inv.potion = 0; inv.leather = inv.iron = false; inv.dirt = inv.wood = inv.stone = inv.ore = inv.hide = inv.arrows = 0; armor = null; pip.state = 'none';
+  monsterKills = 0; quest.i = 0; quest.state = 'none'; quest.base = 0; sq.i = 0; sq.state = 'none'; sq.got = [0, 0, 0, 0]; closeDlg();
   for(let i = villagers.length - 1; i >= 0; i--) if(villagers[i].role === 'child'){ if(villagers[i].tag) villagers[i].tag.remove(); if(villagers[i].bar) villagers[i].bar.remove(); villagers.splice(i, 1); }
   updateQuestHud();
 }
@@ -2574,23 +2810,27 @@ function updateMonsters(dt){
   const net = mpClient();
   if(!net) nextSpawn -= dt;
   if(!net && nextSpawn <= 0){
-    if(monsters.length >= MAX_MONSTERS){
+    if(monsters.length >= MAX_MONSTERS*allPlayerPos().length){
       nextSpawn = 20 + Math.random()*30;
     } else {
       // monsters only appear where it is dark: anywhere at night, or in shade during the day
       const sun = sunDir();
-      let spot = null;
-      for(let tries = 0; tries < 24 && !spot; tries++){
-        const ang = Math.random()*6.2832, d = 35 + Math.random()*35, pp = allPlayerPos()[Math.floor(Math.random()*(1 + remote.size))] || player;
-        const x = pp.x + Math.cos(ang)*d, z = pp.z + Math.sin(ang)*d;
-        if(heightAt(x, z) > 1 && waterDepthAt(x, z) < 0.2 && Math.hypot(x, z) > 75 && lightAt(x, z, sun) < DARK_LEVEL) spot = [x, z];   // on dry land
+      let made = 0;
+      for(const pp of allPlayerPos()){                                  // one monster appears near every player each time
+        let spot = null;
+        for(let tries = 0; tries < 24 && !spot; tries++){
+          const ang = Math.random()*6.2832, d = 35 + Math.random()*35;
+          const x = pp.x + Math.cos(ang)*d, z = pp.z + Math.sin(ang)*d;
+          if(heightAt(x, z) > 1 && waterDepthAt(x, z) < 0.2 && Math.hypot(x, z) > 75 && lightAt(x, z, sun) < DARK_LEVEL) spot = [x, z];   // on dry land
+        }
+        if(spot){
+          monsters.push({id: myCid + ':' + (++mSeq), x: spot[0], z: spot[1], y: 0,
+                         yaw: 0, phase: Math.random()*6, atk: -1, cool: 1, hit: false, moving: false,
+                         hp: MONSTER_HP, bar: null, showUntil: 0, hitT: -1e9});
+          made++;
+        }
       }
-      if(spot){
-        monsters.push({id: myCid + ':' + (++mSeq), x: spot[0], z: spot[1], y: 0,
-                       yaw: 0, phase: Math.random()*6, atk: -1, cool: 1, hit: false, moving: false,
-                       hp: MONSTER_HP, bar: null, showUntil: 0, hitT: -1e9});
-        nextSpawn = 20 + Math.random()*30;
-      } else nextSpawn = 4;                // nowhere dark nearby: look again shortly
+      nextSpawn = made ? 20 + Math.random()*30 : 4;                    // nowhere dark nearby: look again shortly
     }
   }
   for(let i = monsters.length - 1; i >= 0; i--){
@@ -2776,7 +3016,7 @@ function updatePickup(dt){
       const w = pickTarget;
       takeSword(w);
       if(w.type === 'bag'){
-        const it = w.items || {}; inv.bread += it.b | 0; inv.potion += it.p | 0; inv.wood += it.w | 0; inv.stone += it.s | 0; inv.ore += it.o | 0; inv.hide += it.h | 0; inv.arrows += it.a | 0; inv.crystal += it.c | 0; inv.core += it.k | 0; if(it.l) inv.leather = true; if(it.i) inv.iron = true;
+        const it = w.items || {}; inv.bread += it.b | 0; inv.potion += it.p | 0; inv.wood += it.w | 0; inv.stone += it.s | 0; inv.ore += it.o | 0; inv.hide += it.h | 0; inv.arrows += it.a | 0; inv.crystal += it.c | 0; inv.core += it.k | 0; inv.dirt += it.d | 0; if(it.l) inv.leather = true; if(it.i) inv.iron = true;
         if(!armor){ armor = inv.iron ? 'iron' : inv.leather ? 'leather' : null; }
         pickTarget = null; pickProg = 0; addChat('', 'You pick up the bag.', true); return;
       }
@@ -3848,6 +4088,7 @@ function frame(now){
   }
 
   tickHot(dt);
+  tickMap();
   updateCut(frameDt);
   if(!inBg) requestAnimationFrame(frame);
 }
